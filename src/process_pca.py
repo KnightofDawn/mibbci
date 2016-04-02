@@ -42,11 +42,14 @@ if __name__ == '__main__':
     label_feed = data_loaded[:, 17:20]
     print 'X_raw.shape', X_raw.shape
 
-
     # Preprocess the raw data
-    print "X_raw[:, 1].shape:", X_raw[:, 1].shape
-    X_preproc = X_raw - np.tile(np.reshape(X_raw[:, 1], (X_raw.shape[0], 1)), [1, params.NUM_CHANNELS]);
-
+    trunc_x_from = 2000
+    trunc_x_to = 10000
+    X_preproc = X_raw[trunc_x_from:trunc_x_to, :]
+    print 'X_preproc.mean(axis=0):', X_preproc.mean(axis=0)
+    X_preproc = X_preproc - X_preproc.mean(axis=0)
+    print 'X_preproc.std(axis=0):', X_preproc.std(axis=0)
+    X_preproc = X_preproc / X_preproc.std(axis=0)
 
     # Initialize the time-domain filter
     freq_Nyq = params.FREQ_S/2.
@@ -61,49 +64,28 @@ if __name__ == '__main__':
     plt.xlabel('Frequency [rad/sample]')
     plt.show()'''
 
-
     # Filter in time domain
     X_tdfilt = signal.lfilter(numer, denom, X_preproc.T).T
-
 
     # Get the signal power
     X_pow = X_tdfilt * X_tdfilt
 
-
     # Get moving average on signal power
     X_ma = signal.convolve(X_pow.T, np.ones((1, int(1*params.FREQ_S)))).T
 
-
-    # Get channel differences
-    X_to_diff = X_ma
-    X_diff_c5_c6 = X_to_diff[:, 3] - X_to_diff[:, 9]
-    X_diff_c3_c4 = X_to_diff[:, 4] - X_to_diff[:, 8]
-    X_diff_c1_c2 = X_to_diff[:, 5] - X_to_diff[:, 7]
-    X_diff_fc3_fc4 = X_to_diff[:, 0] - X_to_diff[:, 2]
-    X_diff_cp5_cp6 = X_to_diff[:, 10] - X_to_diff[:, 12]
-    X_diff_p3_p4 = X_to_diff[:, 13] - X_to_diff[:, 15]
-    X_diff_avg = (X_diff_c5_c6 + X_diff_c3_c4 + X_diff_c1_c2 + X_diff_fc3_fc4 + X_diff_cp5_cp6 + X_diff_p3_p4) / 6.0
+    # Apply PCA
+    pca_obj = PCA(n_components=params.NUM_CHANNELS)
+    pca_obj.fit(X_ma)
+    X_res = pca_obj.transform(X_ma)
 
 
     # Plot the signal
     if True:
-        channels_to_plot = [1, 3, 9]
-        #plt.plot(X_tdfilt[:, channels_to_plot])
-        #plt.plot(X_ma[:, channels_to_plot])
-        plt.plot(X_diff_c1_c2)
-        plt.plot(X_diff_c3_c4)
-        plt.plot(X_diff_c5_c6)
-        plt.plot(X_diff_fc3_fc4)
-        plt.plot(X_diff_cp5_cp6)
-        plt.plot(X_diff_p3_p4)
-        #plt.plot(X_diff_avg)
-        plt.plot(1000*label_feed[:, 0:2])
-        plt.legend(['X_diff_c1_c2', 'X_diff_c3_c4', 'X_diff_c5_c6', 'X_diff_fc3_fc4', 'X_diff_cp5_cp6', 'X_diff_p3_p4', 'rh', 'lh'])
-        plt.xlim([1500, 5000])
-        plt.ylim([-2000, 2000])
+        channels_to_plot = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        plt.plot(X_res[:, channels_to_plot])
+        plt.plot(label_feed[trunc_x_from:trunc_x_to, 0:2])
+        #plt.xlim([1500, 5000])
+        #plt.ylim([-2000, 2000])
         plt.show()
-        #X_raw_mne.plot(events=events_mne, event_color={1: 'cyan'})
-        #X_raw_mne.plot(events=event_series, event_color={1: 'cyan', -1: 'lightgray'})
-        #time.sleep(2) no
 
 

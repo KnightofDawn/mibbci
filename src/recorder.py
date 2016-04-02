@@ -1,6 +1,6 @@
 
 
-import mi_params
+import params
 import multiprocessing
 import libmushu
 import numpy as np
@@ -56,7 +56,7 @@ class Recorder:
 
         # Get some initial data
         len_initial_data_temp = 0
-        while len_initial_data_temp < mi_params.LEN_INITIAL_DATA:
+        while len_initial_data_temp < params.LEN_INITIAL_DATA:
             data, _ = self.amp.get_data()
             len_initial_data_temp += data.shape[0]
 

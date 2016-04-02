@@ -1,26 +1,32 @@
 '''
 
 TODO:
-ratio, not difference
-deadband instead of rest state calib
-analyze signal during color crossfade as well
-more intensive movements
-try different limbs
-try a sportsman who is used to limb control, sportlovo
+- do softmax with so the preds are exclusive
+- apply some post-proc i.e. pred rh only after N good preds in a row
+- more intensive movements
+- try different limbs, try a sportsman who is used to limb control, sportlovo
+
+
+Older ideas:
+- ratio, not difference
+- deadband instead of rest state calib
+
+
 
 '''
-from bme_bci_Recorder import Recorder
-import mi_params
+from recorder import Recorder
+from custombatchiterator import CustomBatchIterator
+import params
+import nnutils
 import graphics
 import math
 import threading
 import numpy as np
 import time
 from datetime import datetime
-#import csv
 from scipy import signal
-#from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
+import cPickle
 
 
 
@@ -31,15 +37,35 @@ import matplotlib.pyplot as plt
 
 #CONFIG_FILE_NAME = 'config_test.txt'
 is_simulation_mode = False
-if is_simulation_mode:
-    FEAT_MULT_1 = mi_params.FEAT_MULT_1_SIMU
-    FEAT_MULT_2 = mi_params.FEAT_MULT_2_SIMU
-else:
-    FEAT_MULT_1 = mi_params.FEAT_MULT_1_REAL
-    FEAT_MULT_2 = mi_params.FEAT_MULT_2_REAL
+#is_simulation_mode = True
 
 
+########################################################################################################################
 
+def get_time_domain_filters(freq_cut_lo, freq_cut_hi, freq_trans):
+    freq_Nyq = params.FREQ_S / 2.
+    freqs_FIR_Hz = np.array([freq_cut_lo - freq_trans, freq_cut_hi + freq_trans])
+    # numer = signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
+    numer = signal.firwin(params.M_FIR, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
+    denom = 1.
+    '''w, h = signal.freqz(numer)
+    plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
+    plt.ylabel('Amplitude [dB]', color='b')
+    plt.xlabel('Frequency [rad/sample]')
+    plt.show()'''
+
+
+########################################################################################################################
+
+def calc_cursor_step(nnet, X_in):
+    print 'X_in.shape:', X_in.shape
+    y_out = nnet.get_output(layer='Output', X=X_in)
+    print 'y_out.shape:', y_out.shape
+    print 'y_out:', y_out
+    #lasagne.layers.get_output(nnet_last_layer, inputs=x_in)
+    cursor_step = params.CURSOR_STEP_MULT * (y_out[0, 0] - y_out[0, 1])
+
+    return cursor_step
 
 
 ########################################################################################################################
@@ -50,67 +76,58 @@ def cursor_func():
     cursor_radius = 26
     w = 2 * math.pi / 10
 
-
     # Initialize the time-domain filter
-    freq_Nyq = mi_params.FREQ_S/2.
-    freq_trans = 0.5
-    freqs_FIR_Hz = np.array([8.-freq_trans, 12.+freq_trans])
-    #numer = signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
-    numer = signal.firwin(mi_params.M_FIR, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
-    denom = 1.
-    '''w, h = signal.freqz(numer)
-    plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
-    plt.ylabel('Amplitude [dB]', color='b')
-    plt.xlabel('Frequency [rad/sample]')
-    plt.show()'''
+    #numer, denom = get_time_domain_filters(8.0, 12.0, 0.5)
 
+    # Init the NN
+    filename_base = '../models/MIBBCI_NN_medium_bestsofar'
+    filename_nn = filename_base + '.npz'
+    nnet = nnutils.load_nn(nnutils.create_nn_medium, filename_nn)
 
-    # Set up graphics
-    win = graphics.GraphWin('Cursor', mi_params.IMAGE_W, mi_params.IMAGE_H)
-    cursor = graphics.Circle(graphics.Point(mi_params.IMAGE_W/2, mi_params.IMAGE_H/2), cursor_radius)
-    #cursor.setFill(CURSOR_COLOR_REST)
-    #cursor.setOutline(CURSOR_COLOR_REST)
-    cursor.setFill(graphics.color_rgb(mi_params.CURSOR_COLOR_REST[0], mi_params.CURSOR_COLOR_REST[1], mi_params.CURSOR_COLOR_REST[2]))
-    cursor.setOutline(graphics.color_rgb(mi_params.CURSOR_COLOR_REST[0], mi_params.CURSOR_COLOR_REST[1], mi_params.CURSOR_COLOR_REST[2]))
+    # Init the preproc stuff
+    filename_p = filename_base + '.p'
+    scaler = cPickle.load(open(filename_p, 'rb'))
+    print 'Loaded scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
+
+    # Init graphics
+    win = graphics.GraphWin('Cursor', params.IMAGE_W, params.IMAGE_H)
+    cursor = graphics.Circle(graphics.Point(params.IMAGE_W/2, params.IMAGE_H/2), cursor_radius)
+    cursor.setFill(graphics.color_rgb(params.CURSOR_COLOR_REST[0], params.CURSOR_COLOR_REST[1], params.CURSOR_COLOR_REST[2]))
+    cursor.setOutline(graphics.color_rgb(params.CURSOR_COLOR_REST[0], params.CURSOR_COLOR_REST[1], params.CURSOR_COLOR_REST[2]))
     cursor.draw(win)
-    cursor_pos_prev = np.array([mi_params.IMAGE_W/2, mi_params.IMAGE_H/2])
+    cursor_pos_prev = np.array([params.IMAGE_W/2, params.IMAGE_H/2])
     cursor_pos = cursor_pos_prev
-    #my_canvas.delete('all')
-    #event_arr = np.zeros(((LEN_IDLE_SEC+LEN_RIGHT_SEC+LEN_IDLE_SEC+LEN_LEFT_SEC), 3))
-    event_arr_right = np.zeros((mi_params.LEN_DATA_CHUNK_READ, mi_params.NUM_EVENT_TYPES));
-    event_arr_right[:, 0] = np.ones(mi_params.LEN_DATA_CHUNK_READ);        # TODO event ids
-    event_arr_left = np.zeros((mi_params.LEN_DATA_CHUNK_READ, mi_params.NUM_EVENT_TYPES));
-    event_arr_left[:, 1] = np.ones(mi_params.LEN_DATA_CHUNK_READ);        # TODO event ids
-    event_arr_idle = np.zeros((mi_params.LEN_DATA_CHUNK_READ, mi_params.NUM_EVENT_TYPES));
-    event_arr_idle[:, 2] = np.ones(mi_params.LEN_DATA_CHUNK_READ);        # TODO event ids
-    event_arr_calib = np.zeros((mi_params.LEN_DATA_CHUNK_READ, mi_params.NUM_EVENT_TYPES));
-    event_arr_calib[:, 3] = np.ones(mi_params.LEN_DATA_CHUNK_READ);        # TODO event ids
-    #cursor_color_list = []
+
+    # Init event labels
+    event_arr_right = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    event_arr_right[:, params.EVENT_ID_RH] = np.ones(params.LEN_DATA_CHUNK_READ)
+    event_arr_left = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    event_arr_left[:, params.EVENT_ID_LH] = np.ones(params.LEN_DATA_CHUNK_READ)
+    event_arr_idle = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    event_arr_idle[:, params.EVENT_ID_IDLE] = np.ones(params.LEN_DATA_CHUNK_READ)
+    #event_arr_calib = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    #event_arr_calib[:, 3] = np.ones(params.LEN_DATA_CHUNK_READ)
     cursor_event_list = []
-    cursor_color_arr_raw = np.zeros((int(mi_params.LEN_PERIOD_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ), 3))
+    cursor_color_arr_raw = np.zeros((int(params.LEN_PERIOD_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ), 3))
     color_counter = 0
-    for i in range(int(mi_params.LEN_IDLE_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ)):
-        #cursor_color_list.append(CURSOR_COLOR_IDLE)
-        cursor_color_arr_raw[color_counter, :] = mi_params.CURSOR_COLOR_IDLE
+    for i in range(int(params.LEN_IDLE_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+        cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_IDLE
         cursor_event_list.append(event_arr_idle)      # r, l, idle, calib
         color_counter += 1
-    for i in range(int(mi_params.LEN_RIGHT_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ)):
-        #cursor_color_list.append(CURSOR_COLOR_RIGHT)
-        cursor_color_arr_raw[color_counter, :] = mi_params.CURSOR_COLOR_RIGHT
+    for i in range(int(params.LEN_RIGHT_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+        cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_RIGHT
         cursor_event_list.append(event_arr_right)
         color_counter += 1
-    for i in range(int(mi_params.LEN_IDLE_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ)):
-        #cursor_color_list.append(CURSOR_COLOR_IDLE)
-        cursor_color_arr_raw[color_counter, :] = mi_params.CURSOR_COLOR_IDLE
+    for i in range(int(params.LEN_IDLE_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+        cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_IDLE
         cursor_event_list.append(event_arr_idle)
         color_counter += 1
-    for i in range(int(mi_params.LEN_LEFT_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ)):
-        #cursor_color_list.append(CURSOR_COLOR_LEFT)
-        cursor_color_arr_raw[color_counter, :] = mi_params.CURSOR_COLOR_LEFT
+    for i in range(int(params.LEN_LEFT_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+        cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_LEFT
         cursor_event_list.append(event_arr_left)
         color_counter += 1
-    conv_window = np.ones((mi_params.LEN_COLOR_CONV_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ, 1))\
-                  / (int(mi_params.LEN_COLOR_CONV_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ))
+    conv_window = np.ones((params.LEN_COLOR_CONV_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ, 1))\
+                  / (1 * int(params.LEN_COLOR_CONV_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ))
     cursor_color_arr_ud = np.flipud(cursor_color_arr_raw)
     cursor_color_arr_ud_convd = signal.convolve(cursor_color_arr_ud.T, conv_window.T).T
     cursor_color_arr_final = np.flipud(cursor_color_arr_ud_convd[0:cursor_color_arr_raw.shape[0], :])
@@ -123,121 +140,19 @@ def cursor_func():
         #plt.legend(['raw', 'ud', 'ud_convd', 'final'])
         plt.show()
 
-
     # Initialize the amplifier
     if not is_simulation_mode:
         print 'Initializing the amp...'
-        recorder = Recorder('lslamp', mi_params.FREQ_S, mi_params.LEN_REC_BUF_SEC, mi_params.NUM_CHANNELS)
+        recorder = Recorder('lslamp', params.FREQ_S, params.LEN_REC_BUF_SEC, params.NUM_CHANNELS)
         thread_rec = threading.Thread(target=recorder.record)
         thread_rec.start()
 
-
-    # Wait a little until the recorder gets some data
-    #time.sleep(2.0)    The obj does this at init
-    #if not is_simulation_mode:
-    #    while recorder.new_data_counter < mi_params.LEN_DATA_CHUNK_READ:
-    #        print 'Waiting for some initial data...'
-    #        time.sleep(0.1)
-
-
-    # Rest-state offset estimation loop
-    #X_buf_rest_est = np.zeros((1.2*REST_EST_LEN_SAMPLES, 2))    # 2 relevant channels
-    X_buf_raw_live = np.zeros((mi_params.FREQ_S*mi_params.LEN_REC_BUF_SEC, mi_params.NUM_CHANNELS))
-    X_events_live = np.zeros((mi_params.FREQ_S*mi_params.LEN_REC_BUF_SEC, mi_params.NUM_EVENT_TYPES))
-    X_buf_live = np.zeros((mi_params.FREQ_S*mi_params.LEN_REC_BUF_SEC, 2))
-    X_buf_feat_live = np.zeros((mi_params.FREQ_S*mi_params.LEN_REC_BUF_SEC, 1))
-    X_feat_log = np.zeros((mi_params.FREQ_S*mi_params.LEN_REC_BUF_SEC/mi_params.LEN_DATA_CHUNK_READ, 1))
-    counter = 0
-    while counter < (mi_params.LEN_REST_ESTIM_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ):
-        print 'counter: ', counter
-
-        # Clear the canvas
-        win.delete('all')
-
-        #if recorder.is_new_data_available:
-
-        if not is_simulation_mode:
-            # Wait for new data and get it
-            data_last_chunk = recorder.get_new_data(mi_params.LEN_DATA_CHUNK_READ, mi_params.AMP_WAIT_SEC)
-            recorder.acknowledge_new_data()
-            print 'recorder.new_data_counter:', recorder.new_data_counter
-        else:
-            time.sleep(1.0 / (mi_params.FREQ_S/mi_params.LEN_DATA_CHUNK_READ))
-            data_last_chunk = 1000.0 * np.random.rand(mi_params.LEN_DATA_CHUNK_READ, mi_params.NUM_CHANNELS)
-            #print 'Random data_last_chunk size:', data_last_chunk
-
-        if True:
-            # Insert the new sample to our time series
-            X_buf_raw_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :]\
-                            = data_last_chunk
-            #print 'data_last_chunk:', data_last_chunk
-            #data_last_chunk = np.random.rand(LEN_DATA_CHUNK_READ, NUM_CHANNELS)
-            #print 'data_last_chunk.shape:', data_last_chunk.shape
-            #print '(data_last_chunk[:, 7]-data_last_chunk[:, 3]).shape:', (data_last_chunk[:, 7]-data_last_chunk[:, 3]).shape
-            #data_last_reref = data_last_chunk[:, (7, 10)]
-            #print 'data_last_reref.shape:', data_last_reref.shape
-            data_last_reref = np.array([ (data_last_chunk[:, 7]-data_last_chunk[:, 4]), (data_last_chunk[:, 10]-data_last_chunk[:, 4])]).T  # Re-reference
-            #print 'data_last_reref.shape:', data_last_reref.shape
-            #print 'data_last_reref:', data_last_reref
-            X_buf_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :] = data_last_reref   # TODO which channel ids
-            #print 'X_buf_live[((counter+LEN_PADDING)*LEN_DATA_CHUNK_READ):((counter+LEN_PADDING+1)*LEN_DATA_CHUNK_READ), :]:', X_buf_live[((counter+LEN_PADDING)*LEN_DATA_CHUNK_READ):((counter+LEN_PADDING+1)*LEN_DATA_CHUNK_READ), :]
-            X_events_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :] = event_arr_calib
-
-            # Process the data
-            i_2 = (counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ
-            #print 'numer, denom:', numer, denom
-            #print 'X_buf_live[(i_2-M_FIR):i_2, :]', X_buf_live[(i_2-M_FIR):i_2, :]
-            X_filt = signal.lfilter(numer, denom, X_buf_live[(i_2-mi_params.M_FIR):i_2, :].T).T
-            #X_to_filt = X_buf_live[(i_2-M_FIR):i_2, :]
-            #print 'X_to_filt.shape:', X_to_filt.shape
-            #X_filt = np.array(Parallel(n_jobs=4)(delayed(signal.lfilter)
-            #        (numer, denom, X_to_filt[:, ch]) for ch in range(X_to_filt.shape[1]))).T
-            #print 'X_filt:', X_filt
-            #print 'X_filt.shape:', X_filt.shape
-            X_pow = X_filt ** 2
-            #print 'X_pow:', X_pow
-            X_pow_mean = np.mean(X_pow, axis=0)
-            #print 'X_pow mean:', X_pow_mean
-            X_pow_diff = X_pow_mean[0] - X_pow_mean[1]
-
-            #cursor_pos = graphics.Point(IMAGE_W/2 + 100*math.cos(w*counter), IMAGE_H/2)
-            #diff_mult = 4000.0  # Ok for simulation
-            X_feat = FEAT_MULT_1 * X_pow_diff
-            print 'X_feat (rest): ', X_feat
-            X_feat_log[counter] = X_feat
-            X_buf_feat_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :]\
-                            = X_feat * np.ones((mi_params.LEN_DATA_CHUNK_READ, 1))
-            if counter > mi_params.IMP_RESP_LEN:
-                cursor_pos = cursor_pos_prev + np.array([X_feat, 0])
-                print 'cursor_pos: ', cursor_pos
-
-            cursor_pos_point = graphics.Point(cursor_pos[0], cursor_pos[1])
-            cursor_pos_prev = cursor_pos
-            cursor = graphics.Circle(cursor_pos_point, cursor_radius)
-            #cursor.setFill(CURSOR_COLOR_REST)
-            #cursor.setOutline(CURSOR_COLOR_REST)
-            cursor.setFill(graphics.color_rgb(mi_params.CURSOR_COLOR_REST[0], mi_params.CURSOR_COLOR_REST[1], mi_params.CURSOR_COLOR_REST[2]))
-            cursor.setOutline(graphics.color_rgb(mi_params.CURSOR_COLOR_REST[0], mi_params.CURSOR_COLOR_REST[1], mi_params.CURSOR_COLOR_REST[2]))
-            cursor.draw(win)
-
-            #time.sleep(1.0 / (FREQ_S/LEN_DATA_CHUNK_READ)) no
-            #win.getMouse()
-            counter += 1
-
-        # End of if
-    # End of while
-
-
-    # Get the average rest state offset
-    X_feat_rest_offset = np.mean(X_feat_log[(counter-(mi_params.FREQ_S*5.0/mi_params.LEN_DATA_CHUNK_READ)):counter])
-    print 'X_feat_log[0:counter]: ', X_feat_log[0:counter]
-    print 'X_feat_rest_offset: ', X_feat_rest_offset
-
-
     # Cursor control loop
-    #counter = 0 go on
+    X_raw_buf_live = np.zeros((int(params.FREQ_S*params.LEN_REC_BUF_SEC), params.NUM_CHANNELS))
+    label_buf_live = np.zeros((int(params.FREQ_S*params.LEN_REC_BUF_SEC), params.NUM_EVENT_TYPES))
+    counter = 0
     #while True:
-    while counter < (mi_params.LEN_REC_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ):
+    while counter < (params.LEN_REC_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ):
         print 'counter: ', counter
 
         # Clear the canvas
@@ -245,102 +160,75 @@ def cursor_func():
 
         if not is_simulation_mode:
             # Wait for new data and get it
-            data_last_chunk = recorder.get_new_data(mi_params.LEN_DATA_CHUNK_READ, mi_params.AMP_WAIT_SEC)
+            data_last_chunk = recorder.get_new_data(params.LEN_DATA_CHUNK_READ, params.AMP_WAIT_SEC)
             recorder.acknowledge_new_data()
             print 'recorder.new_data_counter:', recorder.new_data_counter
         else:
-            time.sleep(1.0 / (mi_params.FREQ_S/mi_params.LEN_DATA_CHUNK_READ))
-            data_last_chunk = 1000.0 * np.random.rand(mi_params.LEN_DATA_CHUNK_READ, mi_params.NUM_CHANNELS)
+            time.sleep(1.0 / (params.FREQ_S/params.LEN_DATA_CHUNK_READ))
+            data_last_chunk = 1000.0 * np.random.rand(int(params.LEN_DATA_CHUNK_READ), params.NUM_CHANNELS)
             #print 'Random data_last_chunk size:', data_last_chunk
 
-        if True:
-            # Insert the new sample to our time series
-            X_buf_raw_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :] = data_last_chunk
-            #print 'data_last_chunk:', data_last_chunk
-            #data_last_chunk = np.random.rand(LEN_DATA_CHUNK_READ, NUM_CHANNELS)
-            #print 'data_last_chunk.shape:', data_last_chunk.shape
-            #print '(data_last_chunk[:, 7]-data_last_chunk[:, 3]).shape:', (data_last_chunk[:, 7]-data_last_chunk[:, 3]).shape
-            #data_last_reref = data_last_chunk[:, (7, 10)]
-            #print 'data_last_reref.shape:', data_last_reref.shape
-            data_last_reref = np.array([ (data_last_chunk[:, 7]-data_last_chunk[:, 4]), (data_last_chunk[:, 10]-data_last_chunk[:, 4])]).T  # Re-reference
-            #print 'data_last_reref.shape:', data_last_reref.shape
-            #print 'data_last_reref:', data_last_reref
-            X_buf_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :]\
-                            = data_last_reref   # TODO which channel ids
-            #print 'X_buf_live[((counter+LEN_PADDING)*LEN_DATA_CHUNK_READ):((counter+LEN_PADDING+1)*LEN_DATA_CHUNK_READ), :]:', X_buf_live[((counter+LEN_PADDING)*LEN_DATA_CHUNK_READ):((counter+LEN_PADDING+1)*LEN_DATA_CHUNK_READ), :]
-            X_events_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :]\
-                            = cursor_event_list[counter % int(mi_params.LEN_PERIOD_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ)]
+        # Insert the new sample into our time series
+        i_row_lb = int((counter+params.LEN_PADDING)*params.LEN_DATA_CHUNK_READ)
+        i_row_ub = int((counter+params.LEN_PADDING+1)*params.LEN_DATA_CHUNK_READ)
+        X_raw_buf_live[i_row_lb:i_row_ub, :] = data_last_chunk
+        #print 'data_last_chunk:', data_last_chunk
+        label_buf_live[i_row_lb:i_row_ub, :]\
+                = cursor_event_list[counter % int(params.LEN_PERIOD_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)]
 
-            # Process the data
-            i_2 = (counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ
-            #print 'numer, denom:', numer, denom
-            #print 'X_buf_live[(i_2-M_FIR):i_2, :]', X_buf_live[(i_2-M_FIR):i_2, :]
-            X_filt = signal.lfilter(numer, denom, X_buf_live[(i_2-mi_params.M_FIR):i_2, :].T).T
-            #X_to_filt = X_buf_live[(i_2-M_FIR):i_2, :]
-            #print 'X_to_filt.shape:', X_to_filt.shape
-            #X_filt = np.array(Parallel(n_jobs=4)(delayed(signal.lfilter)
-            #        (numer, denom, X_to_filt[:, ch]) for ch in range(X_to_filt.shape[1]))).T
-            #print 'X_filt:', X_filt
-            #print 'X_filt.shape:', X_filt.shape
-            X_pow = X_filt ** 2
-            #print 'X_pow:', X_pow
-            X_pow_mean = np.mean(X_pow, axis=0)
-            print 'X_pow mean:', X_pow_mean
-            X_pow_diff = X_pow_mean[0] - X_pow_mean[1]
+        # Calculating cursor step
+        i_row_ub = int((counter+params.LEN_PADDING+1)*params.LEN_DATA_CHUNK_READ)
+        i_row_lb = i_row_ub - int(params.WINDOW_SIZE_RAW_SAMPLES)
+        if i_row_lb >= 0:
+            #print 'i_row_lb, i_row_ub:', i_row_lb, i_row_ub
+            #print 'X_raw_buf_live[i_row_lb:i_row_ub, :].shape:', X_raw_buf_live[i_row_lb:i_row_ub, :].shape
+            X_window = nnutils.preprocess(X_raw_buf_live[i_row_lb:i_row_ub, :], scaler)
+            X_in = CustomBatchIterator.create_X_instance(X_window, conv_dim=1)
+            X_in = X_in.reshape(1, X_in.shape[0], X_in.shape[1])
+            #print 'X_window.shape:', X_window.shape
+            #print 'X_in.shape:', X_in.shape
+            cursor_step = calc_cursor_step(nnet, X_in.astype(np.float32))
+            cursor_pos = cursor_pos_prev + np.array([cursor_step, 0])
+            #print 'cursor_pos: ', cursor_pos
+        else:
+            cursor_pos = cursor_pos_prev
 
-            #cursor_pos = graphics.Point(IMAGE_W/2 + 100*math.cos(w*counter), IMAGE_H/2)
-            #diff_mult = 4000.0  # Ok for simulation
-            X_feat_pre = FEAT_MULT_1*X_pow_diff - X_feat_rest_offset
-            print 'X_feat_pre: ', X_feat_pre
-            X_feat = FEAT_MULT_2 * X_feat_pre
-            print 'X_feat: ', X_feat
-            X_feat_log[counter] = X_feat
-            X_buf_feat_live[((counter+mi_params.LEN_PADDING)*mi_params.LEN_DATA_CHUNK_READ):((counter+mi_params.LEN_PADDING+1)*mi_params.LEN_DATA_CHUNK_READ), :]\
-                            = X_feat * np.ones((mi_params.LEN_DATA_CHUNK_READ, 1))
-            if counter > mi_params.IMP_RESP_LEN:
-                cursor_pos = cursor_pos_prev + np.array([X_feat, 0])
-                print 'cursor_pos: ', cursor_pos
+        cursor_pos_point = graphics.Point(cursor_pos[0], cursor_pos[1])
+        cursor_pos_prev = cursor_pos
+        cursor = graphics.Circle(cursor_pos_point, cursor_radius)
+        color_temp = cursor_color_arr_final[counter % int(params.LEN_PERIOD_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)]
+        cursor.setFill(graphics.color_rgb(color_temp[0], color_temp[1], color_temp[2]))
+        cursor.setOutline(graphics.color_rgb(color_temp[0], color_temp[1], color_temp[2]))
+        cursor.draw(win)
 
-            cursor_pos_point = graphics.Point(cursor_pos[0], cursor_pos[1])
-            cursor_pos_prev = cursor_pos
-            cursor = graphics.Circle(cursor_pos_point, cursor_radius)
-            #cursor.setFill(cursor_color_list[counter % int(LEN_PERIOD_SEC * FREQ_S / LEN_DATA_CHUNK_READ)])
-            #cursor.setOutline(cursor_color_list[counter % int(LEN_PERIOD_SEC * FREQ_S / LEN_DATA_CHUNK_READ)])
-            color_temp = cursor_color_arr_final[counter % int(mi_params.LEN_PERIOD_SEC * mi_params.FREQ_S / mi_params.LEN_DATA_CHUNK_READ)]
-            cursor.setFill(graphics.color_rgb(color_temp[0], color_temp[1], color_temp[2]))
-            cursor.setOutline(graphics.color_rgb(color_temp[0], color_temp[1], color_temp[2]))
-            cursor.draw(win)
-
-            #time.sleep(1.0 / (FREQ_S/LEN_DATA_CHUNK_READ)) no
-            #win.getMouse()
-            counter += 1
+        counter += 1
 
         # End of if
     # End of while
-
 
     # Stop recording
     recorder.stop_recording()
 
-
     # Close the window
     win.close()
 
-
-
+    # Cut the padding from the data
+    i_row_lb = int(params.LEN_PADDING * params.LEN_DATA_CHUNK_READ)
+    i_row_ub = int((counter+params.LEN_PADDING)*params.LEN_DATA_CHUNK_READ)
+    X_raw_buf_cut = X_raw_buf_live[i_row_lb:i_row_ub, :]
+    label_buf_cut = label_buf_live[i_row_lb:i_row_ub, :]
 
     # Save data to file
-    time_axis = np.arange(X_buf_live.shape[0]).reshape((X_buf_live.shape[0], 1))
+    time_axis = np.arange(X_raw_buf_cut.shape[0]).reshape((X_raw_buf_cut.shape[0], 1))
     print 'time_axis.shape:', time_axis.shape
-    #rec_data, rec_times = recorder.get_data() no cuz of simu
-    #data_merged = np.concatenate((time_axis, X, marker_axis_arr), axis=1)
-    data_merged = np.concatenate((time_axis, X_buf_raw_live, X_events_live, X_buf_live, X_buf_feat_live), axis=1)
+    data_merged = np.concatenate((time_axis, X_raw_buf_cut, label_buf_cut), axis=1)
     print 'data_merged.shape: ', data_merged.shape
     time_save = datetime.now()
-    np.savetxt('BME_BCI_MI_REC_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s.csv'.format(time_save.year, time_save.month, time_save.day,
+    np.savetxt('../data/MIBBCI_REC_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s_RAW.csv'.format(time_save.year, time_save.month, time_save.day,
                time_save.hour, time_save.minute, time_save.second),
                X=data_merged, fmt='%.8f', delimiter=",",
-               header=str(1), comments='time, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, rh, lh, idle, calib, b1, b2, feat')  # TODO
+               header='time, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, red, blue, idle',
+               comments='')
 
 
     print 'cursor_func(.) terminates.'
