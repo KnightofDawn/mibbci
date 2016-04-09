@@ -15,7 +15,7 @@ Older ideas:
 
 '''
 from recorder import Recorder
-from custombatchiterator import CustomBatchIterator
+from timeseriesbatchiterator import TimeSeriesBatchIterator
 import params
 import nnutils
 import graphics
@@ -183,7 +183,7 @@ def cursor_func():
             #print 'i_row_lb, i_row_ub:', i_row_lb, i_row_ub
             #print 'X_raw_buf_live[i_row_lb:i_row_ub, :].shape:', X_raw_buf_live[i_row_lb:i_row_ub, :].shape
             X_window = nnutils.preprocess(X_raw_buf_live[i_row_lb:i_row_ub, :], scaler)
-            X_in = CustomBatchIterator.create_X_instance(X_window, conv_dim=1)
+            X_in = TimeSeriesBatchIterator.create_X_instance(X_window, conv_dim=1)
             X_in = X_in.reshape(1, X_in.shape[0], X_in.shape[1])
             #print 'X_window.shape:', X_window.shape
             #print 'X_in.shape:', X_in.shape

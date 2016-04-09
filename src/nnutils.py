@@ -1,6 +1,7 @@
 
 
-from custombatchiterator import CustomBatchIterator
+from timeseriesbatchiterator import TimeSeriesBatchIterator
+from epochbatchiterator import EpochBatchIterator
 import utils
 import params
 import nolearn
@@ -16,20 +17,6 @@ import cPickle
 TAG = '[nnutils] '
 
 
-########################################################################################################################
-
-def fit_scaler(X_raw):
-    scaler = sklearn.preprocessing.StandardScaler()
-    scaler.fit(X_raw)
-
-    return scaler
-
-
-########################################################################################################################
-
-def preprocess(X_raw, scaler):
-
-    return scaler.transform(X_raw)
 
 
 ########################################################################################################################
@@ -103,7 +90,7 @@ def save_nn(nnet, filename):
 
 # LeNet: 46x46 -> 20x42x42 -> 20x14x14 -> 100x10x10 -> 100x5x5 -> 200x1 (dense) -> 6x1 (multinom logreg)
 # HEDJ
-def create_nn_big():
+def create_nn_big(num_max_epochs):
     layer_obj = lasagne.layers.InputLayer(shape=(None, params.NUM_CHANNELS, params.WINDOW_SIZE_DEC_SAMPLES), name='Input')
     # To Conv1DLayer: 3D tensor, with shape (batch_size, num_input_channels, input_length)
     layer_obj = lasagne.layers.Conv1DLayer(layer_obj, num_filters=8, filter_size=3,
@@ -147,7 +134,7 @@ def create_nn_big():
             update_learning_rate=0.01,  # Nesterov
             update_momentum=0.9,  # Nesterov
             objective_loss_function=nn_loss_func,
-            regression=True, max_epochs=params.NUM_MAX_TRAIN_EPOCHS,
+            regression=True, max_epochs=num_max_epochs,
             y_tensor_type=theano.tensor.matrix, verbose=1)
     #nnet.initialize()
     #print 'nnet.predict_iter_: ', nnet.predict_iter_
@@ -161,20 +148,21 @@ def create_nn_big():
 
 # LeNet: 46x46 -> 20x42x42 -> 20x14x14 -> 100x10x10 -> 100x5x5 -> 200x1 (dense) -> 6x1 (multinom logreg)
 # HEDJ
-def create_nn_medium():
-    layer_obj = lasagne.layers.InputLayer(shape=(None, params.NUM_CHANNELS, params.WINDOW_SIZE_DEC_SAMPLES), name='Input')
+def create_nn_medium(num_inputs, num_outputs, num_max_epochs):
+    layer_obj = lasagne.layers.InputLayer(
+            shape=(None, num_inputs[0], num_inputs[1]), name='Input')
     # To Conv1DLayer: 3D tensor, with shape (batch_size, num_input_channels, input_length)
     layer_obj = lasagne.layers.Conv1DLayer(layer_obj, num_filters=16, filter_size=3,
             nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv1D_1')
     layer_obj = lasagne.layers.MaxPool1DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool1D_1')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_1')
     #
-    layer_obj = lasagne.layers.Conv1DLayer(layer_obj, num_filters=32, filter_size=5,
+    layer_obj = lasagne.layers.Conv1DLayer(layer_obj, num_filters=16, filter_size=3,
             nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv1D_2')
     layer_obj = lasagne.layers.MaxPool1DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool1D_2')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_2')
     #
-    layer_obj = lasagne.layers.Conv1DLayer(layer_obj, num_filters=64, filter_size=7,
+    layer_obj = lasagne.layers.Conv1DLayer(layer_obj, num_filters=32, filter_size=2,
             nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv1D_3')
     layer_obj = lasagne.layers.MaxPool1DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool1D_3')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_3')
@@ -187,7 +175,7 @@ def create_nn_medium():
             nonlinearity=params.INTERNAL_NONLINEARITY_DENSE, name='Dense_99')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_99')
     #
-    layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=params.NUM_EVENT_TYPES,
+    layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=num_outputs,
             nonlinearity=theano.tensor.nnet.sigmoid, name='Output')
 
     nnet = nolearn.lasagne.NeuralNet(layer_obj,
@@ -196,7 +184,8 @@ def create_nn_medium():
             update=lasagne.updates.nesterov_momentum,  # Nesterov
             update_learning_rate=0.01,  # Nesterov
             update_momentum=0.9,  # Nesterov
-            regression=True, max_epochs=params.NUM_MAX_TRAIN_EPOCHS,
+            objective_loss_function=nn_loss_func,
+            regression=True, max_epochs=num_max_epochs,
             y_tensor_type=theano.tensor.matrix, verbose=1)
     #nnet.initialize()
     #print 'nnet.predict_iter_: ', nnet.predict_iter_
@@ -206,53 +195,77 @@ def create_nn_medium():
 
 ########################################################################################################################
 
-def train_nn_from_data(nnet, X_train, labels_train, validation_data_ratio=0.2):
+def train_nn_from_timeseries_data(
+        nnet,
+        X_train, labels_train,
+        num_train_data_instances,
+        validation_data_ratio=0.2):
+
+    # Dummy set for testing
+    #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
 
     # Create the batch iterators
     print 'X_train.shape:', X_train.shape
     index_start_validation = int((1.0 - validation_data_ratio) * X_train.shape[0])
     print(TAG, 'index_start_validation: ', index_start_validation)
-    batch_iter_train_base = CustomBatchIterator(X_train[:index_start_validation],
+    batch_iter_train_base = TimeSeriesBatchIterator(X_train[:index_start_validation],
         labels_train[:index_start_validation], batch_size=params.BATCH_SIZE)
-    batch_iter_train_valid = CustomBatchIterator(X_train[index_start_validation:],
+    batch_iter_train_valid = TimeSeriesBatchIterator(X_train[index_start_validation:],
         labels_train[index_start_validation:], batch_size=params.BATCH_SIZE)
 
     # Add the batch iterators to the net
     nnet.batch_iterator_train = batch_iter_train_base
     nnet.batch_iterator_test = batch_iter_train_valid
 
-    train_indices = np.zeros(params.NUM_TRAIN_DATA_INSTANCES, dtype=int) - 1    # Passing full zeros, the batch iterator will pull data instances randomly
+    train_indices = np.zeros(num_train_data_instances, dtype=int) - 1    # Passing full zeros, the batch iterator will pull data instances randomly
     print(TAG, 'Fitting the classifier...')
     #t_start_fit = time.time()
     nnet.fit(train_indices, train_indices)
 
 
+########################################################################################################################
+
+def train_nn_from_epoch_data(nnet,
+        X_epoch_list, label_list,
+        num_train_data_instances,
+        validation_data_ratio=0.2):
+
+    # Dummy set for testing
+    #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
+
+    # Create the list of the class labels
+    #label_list = []
+
+    # Create the batch iterators
+    index_start_validation = int((1.0 - validation_data_ratio) * len(X_epoch_list))
+    print(TAG, 'index_start_validation: ', index_start_validation)
+    batch_iter_train_base = EpochBatchIterator(X_epoch_list[:index_start_validation],
+        label_list[:index_start_validation], batch_size=params.BATCH_SIZE)
+    batch_iter_train_valid = EpochBatchIterator(X_epoch_list[index_start_validation:],
+        label_list[index_start_validation:], batch_size=params.BATCH_SIZE)
+
+    # Add the batch iterators to the net
+    nnet.batch_iterator_train = batch_iter_train_base
+    nnet.batch_iterator_test = batch_iter_train_valid
+
+    train_indices = np.zeros(num_train_data_instances, dtype=int) - 1    # Passing full zeros, the batch iterator will pull data instances randomly
+    print(TAG, 'Fitting the classifier...')
+    #t_start_fit = time.time()
+    nnet.fit(train_indices, train_indices)
 
 
 ########################################################################################################################
 
-
-def train_nn(nnet, data_filename_list, scaler=None, plot_history=False):
-
-    # Load the training data
-    X_train_raw, labels_train = utils.load_data(data_filename_list)
-
-    # Preprocess the raw data
-    # trunc_x_from = 2000
-    # trunc_x_to = 10000
-    # X_preproc = preprocess(X_train_raw[trunc_x_from:trunc_x_to, :])
-    # labels_train = labels_train[trunc_x_from:trunc_x_to, :]
-    if scaler is None:
-        scaler = fit_scaler(X_train_raw)
-        print 'Fit scaler scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
-    else:
-        print 'Provided scaler scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
-    X_train_preproc = preprocess(X_train_raw, scaler)
-    labels_train = labels_train
+def train_nn_timeseries(
+        nnet,
+        X_train, labels_train,
+        num_train_data_instances,
+        plot_history=False):
 
     # Init and train the NN
     validation_data_ratio = params.VALIDATION_DATA_RATIO
-    train_nn_from_data(nnet, X_train_preproc, labels_train, validation_data_ratio)
+    train_nn_from_timeseries_data(
+            nnet, X_train, labels_train, num_train_data_instances, validation_data_ratio)
     if plot_history:
         train_loss = np.array([i["train_loss"] for i in nnet.train_history_])
         valid_loss = np.array([i["valid_loss"] for i in nnet.train_history_])
@@ -266,26 +279,34 @@ def train_nn(nnet, data_filename_list, scaler=None, plot_history=False):
         #plt.yscale("log")
         plt.show()
 
-    # Save the NN
-    time_save = datetime.now()
-    filename_base = '../models/MIBBCI_NN_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s'.format(
-        time_save.year, time_save.month, time_save.day, time_save.hour, time_save.minute, time_save.second)
-    filename_nn = filename_base + '.npz'
-    save_nn(nnet, filename_nn)
-
-    # Save the preproc stuff
-    print 'Before dump scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
-    filename_p = filename_base + '.p'
-    cPickle.dump(scaler, open(filename_p, 'wb'))
-
-    # Test-load the NN with load_params_from
-    #load_nn(create_nn_medium, filename_nn)
-
-    # Test-load the preproc stuff
-    #scaler = cPickle.load(open(filename_p, 'rb'))
-    #print 'After load scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
-
-    return nnet, scaler
+    return nnet
 
 
+########################################################################################################################
+
+def train_nn_epochs(
+        nnet,
+        X_epoch_list,
+        label_list,
+        num_train_data_instances,
+        plot_history=False):
+
+    # Init and train the NN
+    validation_data_ratio = params.VALIDATION_DATA_RATIO
+    train_nn_from_epoch_data(
+            nnet, X_epoch_list, label_list, num_train_data_instances, validation_data_ratio)
+    if plot_history:
+        train_loss = np.array([i["train_loss"] for i in nnet.train_history_])
+        valid_loss = np.array([i["valid_loss"] for i in nnet.train_history_])
+        plt.plot(train_loss, linewidth=3, label="train")
+        plt.plot(valid_loss, linewidth=3, label="valid")
+        plt.grid()
+        plt.legend()
+        plt.xlabel("epoch")
+        plt.ylabel("loss")
+        #plt.ylim(1e-3, 1e-2)
+        #plt.yscale("log")
+        plt.show()
+
+    return nnet
 
