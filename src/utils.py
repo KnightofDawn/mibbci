@@ -4,10 +4,12 @@ import params
 import nnutils
 import numpy as np
 import sklearn
-from scipy import signal
+import scipy
 import matplotlib.pyplot as plt
 import datetime
 import cPickle
+import pybdf
+import os
 
 
 
@@ -22,15 +24,16 @@ def fit_scaler(X_raw):
 
 ########################################################################################################################
 
-def create_passband_filter(freq_cut_lo, freq_cut_hi):
+def create_passband_filter(freq_cut_lo, freq_cut_hi, freq_s, M_fir):
     # Initialize the time-domain filter
-    freq_Nyq = params.FREQ_S / 2.
+    freq_Nyq = freq_s / 2.
     #freqs_FIR_Hz = np.array([4. - freq_trans, 24. + freq_trans])
     freqs_FIR_Hz = np.array([freq_cut_lo - params.FREQ_TRANS_HZ, freq_cut_hi + params.FREQ_TRANS_HZ])
-    # numer = signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
-    numer = signal.firwin(params.M_FIR, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
+    print 'freq_Nyq:', freq_Nyq, 'freqs_FIR_Hz:', freqs_FIR_Hz
+    # numer = scipy.signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
+    numer = scipy.signal.firwin(M_fir, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
     denom = 1.
-    '''w, h = signal.freqz(numer)
+    '''w, h = scipy.signal.freqz(numer)
     plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
     plt.ylabel('Amplitude [dB]', color='b')
     plt.xlabel('Frequency [rad/sample]')
@@ -49,10 +52,16 @@ def rereference(X_to_reref, id_ch_reref):
 
 ########################################################################################################################
 
-def init_preprocessors(X_train):
-    numer, denom = create_passband_filter(params.FREQ_CUT_LO, params.FREQ_CUT_HI)
+def init_preprocessors(X_raw, freq_s_decimated, M_fir):
+
+    # Init time-domain filters
+    numer, denom = create_passband_filter(params.FREQ_CUT_LO, params.FREQ_CUT_HI, freq_s_decimated, M_fir)
     print 'Created numer, denom:\n', numer, '\n', denom
-    scaler = fit_scaler(X_train)
+    
+    # Init scaler
+    # For the filtered data
+    X_filt = scipy.signal.lfilter(numer, denom, X_raw.T).T
+    scaler = fit_scaler(X_filt)
     print 'Fit scaler scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
 
     return numer, denom, scaler
@@ -60,21 +69,18 @@ def init_preprocessors(X_train):
 
 ########################################################################################################################
 
-def preprocess(X_raw, labels, decimation_factor=None, tdfilt_numer=None, tdfilt_denom=None,
+def preprocess(X_raw, labels, tdfilt_numer=None, tdfilt_denom=None,
         reref_channel_id=None, power=False, mov_avg_window_size=None, scaler=None):
 
-    # Decimate
-    if decimation_factor is not None:
-        X_preprocessed = X_raw[::params.DECIMATION_FACTOR_PREPROC]
-        labels_preprocessed = labels[::params.DECIMATION_FACTOR_PREPROC]
-    else:
-        X_preprocessed = X_raw
+    # Assign
+    X_preprocessed = X_raw
+    labels_preprocessed = labels
 
     # Time-domain filter
     if tdfilt_numer is None or tdfilt_denom is None:
         X_preprocessed = X_preprocessed
     else:
-        X_preprocessed = signal.lfilter(tdfilt_numer, tdfilt_denom, X_preprocessed.T).T
+        X_preprocessed = scipy.signal.lfilter(tdfilt_numer, tdfilt_denom, X_preprocessed.T).T
 
     # Re-reference
     if reref_channel_id is not None:
@@ -87,7 +93,7 @@ def preprocess(X_raw, labels, decimation_factor=None, tdfilt_numer=None, tdfilt_
     # Moving average
     if mov_avg_window_size is not None:
         len_orig = X_preprocessed.shape[0]
-        X_preprocessed = signal.convolve(X_preprocessed.T,
+        X_preprocessed = scipy.signal.convolve(X_preprocessed.T,
                 np.ones((1, int(mov_avg_window_size * params.WINDOW_SIZE_DECIMATED_SAMPLES)))).T
         X_preprocessed = X_preprocessed[0:len_orig]
 
@@ -106,29 +112,6 @@ def preprocess(X_raw, labels, decimation_factor=None, tdfilt_numer=None, tdfilt_
     #plt.show()
 
     return X_preprocessed, labels_preprocessed
-
-
-########################################################################################################################
-
-
-def load_data(data_filename_list):
-    X_list = []
-    labels_list = []
-
-    for data_filename in data_filename_list:
-        print 'Loading data from', data_filename, '...'
-        data_loaded_train = np.loadtxt(fname=data_filename, delimiter=',', skiprows=1);
-        print 'data_loaded.shape:', data_loaded_train.shape
-        X_list.append(data_loaded_train[:, 1:(1 + params.NUM_CHANNELS)])
-        labels_list.append(data_loaded_train[:, params.LABEL_ID_RED:(params.LABEL_ID_RED+params.NUM_EVENT_TYPES)])
-        # print 'X_raw.shape', X_train_raw.shape
-
-    #X = np.concatenate((X_list[0], X_list[1], X_list[2]), axis=0)
-    #labels = np.concatenate((labels_list[0], labels_list[1], labels_list[2]), axis=0)
-    X = np.concatenate(X_list, axis=0)
-    labels = np.concatenate(labels_list, axis=0)
-
-    return X, labels
 
 
 ########################################################################################################################
@@ -161,10 +144,13 @@ def calculate_auroc(labels_groundtruth, labels_predictions, labels_names, tpr_ta
 
     if plot:
         # Plot TPR vs. thresholds
-        plt.plot(threshold_arr_list[0], tpr_arr_list[0], 'r-', label='rh - tpr')
-        plt.plot(threshold_arr_list[0], fpr_arr_list[0], 'r--', label='rh - fpr')
-        plt.plot(threshold_arr_list[1], tpr_arr_list[1], 'b-', label='lh - tpr')
-        plt.plot(threshold_arr_list[1], fpr_arr_list[1], 'b--', label='lh - fpr')
+        for i_event in range(labels_groundtruth.shape[1]):
+            plt.plot(threshold_arr_list[0], tpr_arr_list[0], label='tpr_{}'.format(i_event))
+            plt.plot(threshold_arr_list[0], fpr_arr_list[0], label='fpr_{}'.format(i_event))
+        #plt.plot(threshold_arr_list[0], tpr_arr_list[0], 'r-', label='rh - tpr')
+        #plt.plot(threshold_arr_list[0], fpr_arr_list[0], 'r--', label='rh - fpr')
+        #plt.plot(threshold_arr_list[1], tpr_arr_list[1], 'b-', label='lh - tpr')
+        #plt.plot(threshold_arr_list[1], fpr_arr_list[1], 'b--', label='lh - fpr')
         plt.xlim([0.0, 1.0])
         plt.ylim([0.0, 1.0])
         plt.title('TPR vs. thresholds')
@@ -206,11 +192,11 @@ def create_epochs(X_timeseries, label_timeseries, time_offset_samples):
 
 ########################################################################################################################
 
-def save_pipeline(nnet, numer, denom, scaler):
+def save_processing_pipeline(nnet, numer, denom, scaler):
 
     # Save the NN
     time_save = datetime.datetime.now()
-    filename_base = '../models/MIBBCI_NN_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s'.format(
+    filename_base = './models/MIBBCI_NN_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s'.format(
         time_save.year, time_save.month, time_save.day, time_save.hour, time_save.minute, time_save.second)
     filename_nn = filename_base + '.npz'
     nnutils.save_nn(nnet, filename_nn)
@@ -233,8 +219,9 @@ def save_pipeline(nnet, numer, denom, scaler):
     # print 'After load scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
 
 
+########################################################################################################################
 
-def load_pipeline(filename_base):
+def load_processing_pipeline(filename_base):
     filename_nn = filename_base + '.npz'
     nnet = nnutils.load_nn(nnutils.create_nn_medium, filename_nn)
     filename_numer = filename_base + '_numer.p'
@@ -247,3 +234,116 @@ def load_pipeline(filename_base):
     print 'Loaded scaler.mean_, scaler.var_:\n', scaler.mean_, '\n', scaler.var_
 
     return nnet, numer, denom, scaler
+
+
+########################################################################################################################
+
+
+def load_data(data_filename_list, decimation_factor):
+
+    # Find out the extensions
+    # TODO decide extension per filename, not per the whole list
+    filename = data_filename_list[0]
+    file_extension = os.path.splitext(filename)[1]
+    print 'file_extension:', file_extension
+
+    # Call the appropriate load function depending on the file extension
+    if file_extension == '.csv':
+        X_raw, labels = load_data_csv(data_filename_list, decimation_factor)
+    elif file_extension == '.bdf':
+        X_raw, labels = load_data_bdf(data_filename_list, decimation_factor)
+    else:
+        X_raw = None
+        labels = None
+
+    return X_raw, labels
+
+
+########################################################################################################################
+
+def load_data_csv(data_csv_filename_list, decimation_factor):
+    X_list = []
+    labels_list = []
+
+    for data_filename in data_csv_filename_list:
+        print 'Loading data from', data_filename, '...'
+        data_loaded_train = np.loadtxt(fname=data_filename, delimiter=',', skiprows=1);
+        print 'data_loaded.shape:', data_loaded_train.shape
+        X_list.append(data_loaded_train[:, 1:(1 + params.NUM_CHANNELS)])
+        labels_list.append(data_loaded_train[:, params.LABEL_ID_RED:(params.LABEL_ID_RED+params.NUM_EVENT_TYPES)])
+        # print 'X_raw.shape', X_train_raw.shape
+
+    #X = np.concatenate((X_list[0], X_list[1], X_list[2]), axis=0)
+    #labels = np.concatenate((labels_list[0], labels_list[1], labels_list[2]), axis=0)
+    X_raw = np.concatenate(X_list, axis=0)
+    labels = np.concatenate(labels_list, axis=0)
+    
+    # Downsample the data
+    downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
+    print 'downsample_indices:\n', downsample_indices
+    X_raw = X_raw[downsample_indices, 0:params.NUM_CHANNELS_CSV]
+    labels = labels[downsample_indices]
+    #X_raw = X_raw[::decimation_factor]
+    #labels = labels[::decimation_factor]
+
+    return X_raw, labels
+
+
+########################################################################################################################
+
+
+def load_data_bdf(data_bdf_filename_list, decimation_factor):
+    
+    # TODO with list
+    filename = data_bdf_filename_list[0]
+    print 'bdf filename:', filename
+    recording_obj = pybdf.bdfRecording(filename)
+    
+    # Get recording information
+    print 'sampling_rate [Hz]:', recording_obj.sampRate
+    print 'duration [s]:', recording_obj.duration
+    print '#channels:', recording_obj.nChannels
+    print 'channel labels:', recording_obj.chanLabels
+    print 'dataChanLabels:', recording_obj.dataChanLabels
+    print 'unit of measure:', recording_obj.physDim
+    
+    # Convert the data channel labels to integers, otherwise pybdf runs into a bug
+    for i_label in range(len(recording_obj.dataChanLabels)):
+        recording_obj.dataChanLabels[i_label] = i_label
+    print 'dataChanLabels:', recording_obj.dataChanLabels
+    
+    # Get the data object
+    data_obj = recording_obj.getData()
+    
+    # Get the signal data from the data object
+    X_raw = data_obj['data'].T
+    print 'X_raw.shape:', X_raw.shape
+    #time_axis = np.arange(X_raw.shape[1]) / recording_obj.sampRate[0]
+    
+    # Get the event information from the data object
+    # Event codes: 247 is button pressed (1), 255 is button released (0)
+    event_table = data_obj['eventTable']
+    print 'event_table[\'code\']:\n', event_table['code']
+    print 'event_table[\'idx\']:\n', event_table['idx']
+    print 'event_table[\'dur\']:\n', event_table['dur']
+    
+    # Build the label feed from the event information
+    labels = np.zeros((X_raw.shape[0], 1), np.float32)
+    n_events = len(event_table['code'])
+    EVENT_CODE_ACTION = 247
+    for i_event in range(n_events-1):
+        if event_table['code'][i_event] == EVENT_CODE_ACTION:
+            labels[event_table['idx'][i_event]:event_table['idx'][i_event+1], :] = 1.0
+            
+    # Downsample the data
+    downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
+    print 'downsample_indices:\n', downsample_indices
+    X_raw = X_raw[downsample_indices, 0:params.NUM_CHANNELS_BDF]
+    labels = labels[downsample_indices, :]
+    #X_raw = X_raw[::decimation_factor]
+    #labels = labels[::decimation_factor]
+    
+    return X_raw, labels
+
+
+    
