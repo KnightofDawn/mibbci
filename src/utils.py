@@ -1,15 +1,18 @@
 
 
-import params
 import nnutils
+import params
 import numpy as np
 import sklearn
 import scipy
+import math
 import matplotlib.pyplot as plt
 import datetime
 import cPickle
 import pybdf
+import joblib
 import os
+import logging
 
 
 
@@ -24,23 +27,51 @@ def fit_scaler(X_raw):
 
 ########################################################################################################################
 
-def create_passband_filter(freq_cut_lo, freq_cut_hi, freq_s, M_fir):
+def create_bandpass_filter(
+        freq_cut_lo,
+        freq_cut_hi,
+        freq_s,
+        M_fir,
+        plot=False):
+    
     # Initialize the time-domain filter
     freq_Nyq = freq_s / 2.
     #freqs_FIR_Hz = np.array([4. - freq_trans, 24. + freq_trans])
-    freqs_FIR_Hz = np.array([freq_cut_lo - params.FREQ_TRANS_HZ, freq_cut_hi + params.FREQ_TRANS_HZ])
+    freqs_FIR_Hz = np.array([freq_cut_lo, freq_cut_hi])
     print 'freq_Nyq:', freq_Nyq, 'freqs_FIR_Hz:', freqs_FIR_Hz
     # numer = scipy.signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
     numer = scipy.signal.firwin(M_fir, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
     denom = 1.
-    '''w, h = scipy.signal.freqz(numer)
-    plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
-    plt.ylabel('Amplitude [dB]', color='b')
-    plt.xlabel('Frequency [rad/sample]')
-    plt.show()'''
+    if plot:
+        w, h = scipy.signal.freqz(numer)
+        plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
+        plt.ylabel('Amplitude [dB]', color='b')
+        plt.xlabel('Frequency [rad/sample]')
+        plt.show()
 
     return numer, denom
 
+
+########################################################################################################################
+
+def create_lowpass_filter(
+        freq_cut,
+        freq_s,
+        M_fir,
+        plot=False):
+    
+    # Initialize the time-domain filter
+    freq_Nyq = freq_s / 2.
+    numer = scipy.signal.firwin(numtaps=M_fir, cutoff=freq_cut, nyq=freq_Nyq)
+    denom = 1.
+    if plot:
+        w, h = scipy.signal.freqz(numer)
+        plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
+        plt.ylabel('Amplitude [dB]', color='b')
+        plt.xlabel('Frequency [rad/sample]')
+        plt.show()
+
+    return numer, denom
 
 ########################################################################################################################
 
@@ -52,10 +83,19 @@ def rereference(X_to_reref, id_ch_reref):
 
 ########################################################################################################################
 
-def init_preprocessors(X_raw, freq_s_decimated, M_fir):
+def init_preprocessors(
+        X_raw,
+        freq_s_decimated,
+        freq_cut_lo,
+        freq_cut_hi,
+        M_fir):
 
     # Init time-domain filters
-    numer, denom = create_passband_filter(params.FREQ_CUT_LO, params.FREQ_CUT_HI, freq_s_decimated, M_fir)
+    numer, denom = create_bandpass_filter(
+            freq_cut_lo,
+            freq_cut_hi,
+            freq_s_decimated,
+            M_fir)
     print 'Created numer, denom:\n', numer, '\n', denom
     
     # Init scaler
@@ -69,8 +109,12 @@ def init_preprocessors(X_raw, freq_s_decimated, M_fir):
 
 ########################################################################################################################
 
-def preprocess(X_raw, labels, tdfilt_numer=None, tdfilt_denom=None,
-        reref_channel_id=None, power=False, mov_avg_window_size=None, scaler=None):
+def preprocess(
+        X_raw, labels,
+        tdfilt_numer=None, tdfilt_denom=None,
+        reref_channel_id=None,
+        power=False, mov_avg_window_size=None,
+        scaler=None):
 
     # Assign
     X_preprocessed = X_raw
@@ -245,7 +289,7 @@ def load_data(data_filename_list, decimation_factor):
     # TODO decide extension per filename, not per the whole list
     filename = data_filename_list[0]
     file_extension = os.path.splitext(filename)[1]
-    print 'file_extension:', file_extension
+    logging.debug('file_extension: %s', file_extension)
 
     # Call the appropriate load function depending on the file extension
     if file_extension == '.csv':
@@ -266,7 +310,7 @@ def load_data_csv(data_csv_filename_list, decimation_factor):
     labels_list = []
 
     for data_filename in data_csv_filename_list:
-        print 'Loading data from', data_filename, '...'
+        logging.debug('Loading data from %d ...', data_filename)
         data_loaded_train = np.loadtxt(fname=data_filename, delimiter=',', skiprows=1);
         print 'data_loaded.shape:', data_loaded_train.shape
         X_list.append(data_loaded_train[:, 1:(1 + params.NUM_CHANNELS)])
@@ -296,16 +340,16 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
     
     # TODO with list
     filename = data_bdf_filename_list[0]
-    print 'bdf filename:', filename
+    logging.debug('bdf filename: %s', filename)
     recording_obj = pybdf.bdfRecording(filename)
     
     # Get recording information
-    print 'sampling_rate [Hz]:', recording_obj.sampRate
-    print 'duration [s]:', recording_obj.duration
-    print '#channels:', recording_obj.nChannels
+    logging.debug('sampling_rate [Hz]: %f', recording_obj.sampRate[0])
+    logging.debug('duration [s]: %f', recording_obj.duration)
+    logging.debug('#channels: %d', recording_obj.nChannels)
+    logging.debug('unit of measure: %s', recording_obj.physDim[0])
     print 'channel labels:', recording_obj.chanLabels
     print 'dataChanLabels:', recording_obj.dataChanLabels
-    print 'unit of measure:', recording_obj.physDim
     
     # Convert the data channel labels to integers, otherwise pybdf runs into a bug
     for i_label in range(len(recording_obj.dataChanLabels)):
@@ -316,34 +360,68 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
     data_obj = recording_obj.getData()
     
     # Get the signal data from the data object
+    logging.debug('Getting the signal data from the data object...')
     X_raw = data_obj['data'].T
-    print 'X_raw.shape:', X_raw.shape
+    logging.debug('Getting the signal data from the data object finished.')
+    logging.debug('X_raw shape: %d, %d', X_raw.shape[0], X_raw.shape[1])
     #time_axis = np.arange(X_raw.shape[1]) / recording_obj.sampRate[0]
     
     # Get the event information from the data object
     # Event codes: 247 is button pressed (1), 255 is button released (0)
+    logging.debug('Getting the event data from the data object...')
     event_table = data_obj['eventTable']
     print 'event_table[\'code\']:\n', event_table['code']
     print 'event_table[\'idx\']:\n', event_table['idx']
     print 'event_table[\'dur\']:\n', event_table['dur']
+    logging.debug('Getting the event data from the data object finished.')
     
     # Build the label feed from the event information
+    logging.debug('Building the label feed from the event information...')
     labels = np.zeros((X_raw.shape[0], 1), np.float32)
     n_events = len(event_table['code'])
     EVENT_CODE_ACTION = 247
     for i_event in range(n_events-1):
         if event_table['code'][i_event] == EVENT_CODE_ACTION:
             labels[event_table['idx'][i_event]:event_table['idx'][i_event+1], :] = 1.0
-            
+    logging.debug('Building the label feed from the event information finished.')
+    
+    # Low-pass-filter the data before downsampling
+    freq_sampling = recording_obj.sampRate[0]
+    logging.debug('freq_sampling: %f', freq_sampling)
+    freq_cut_downsampling = freq_sampling / (2.0 * decimation_factor)
+    logging.debug('freq_cut_downsampling: %f', freq_cut_downsampling)
+    M_fir = freq_sampling
+    tdfilt_numer, tdfilt_denom = create_lowpass_filter(
+            freq_cut=freq_cut_downsampling,
+            freq_s=freq_sampling,
+            M_fir=M_fir)
+            #plot=True)
+    logging.debug('Low-pass filtering the data before downsampling...')
+    logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+    X_lpfiltered = scipy.signal.lfilter(tdfilt_numer, tdfilt_denom, X_raw.T).T
+    #X_lpfiltered = np.array(joblib.Parallel(n_jobs=params.NUM_PARALLEL_JOBS)
+    #                        (joblib.delayed(scipy.signal.lfilter)
+    #                                (tdfilt_numer, tdfilt_denom,
+    #                                X_raw[:, i_ch]) for i_ch in range(X_raw.shape[1]))).T
+    logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+    logging.debug('Low-pass filtering the data before downsampling finished.')
+    logging.debug('X_lpfiltered shape: %d, %d', X_lpfiltered.shape[0], X_lpfiltered.shape[1])
+    
     # Downsample the data
-    downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
+    downsample_indices = np.arange(0, X_lpfiltered.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
     print 'downsample_indices:\n', downsample_indices
-    X_raw = X_raw[downsample_indices, 0:params.NUM_CHANNELS_BDF]
+    logging.debug('Downsampling the data...')
+    logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+    X_downsampled = X_lpfiltered[downsample_indices, :]
+    #X_downsampled = X_lpfiltered[downsample_indices, 0:params.NUM_CHANNELS_BDF]
     labels = labels[downsample_indices, :]
     #X_raw = X_raw[::decimation_factor]
     #labels = labels[::decimation_factor]
+    logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+    logging.debug('Downsampling the data finished.')
+    logging.debug('X_downsampled shape: %d, %d', X_downsampled.shape[0], X_downsampled.shape[1])
     
-    return X_raw, labels
+    return X_downsampled, labels
 
 
     
