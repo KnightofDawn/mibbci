@@ -33,7 +33,7 @@ def create_bandpass_filter(
         freq_s,
         M_fir,
         plot=False):
-    
+
     # Initialize the time-domain filter
     freq_Nyq = freq_s / 2.
     #freqs_FIR_Hz = np.array([4. - freq_trans, 24. + freq_trans])
@@ -59,7 +59,7 @@ def create_lowpass_filter(
         freq_s,
         M_fir,
         plot=False):
-    
+
     # Initialize the time-domain filter
     freq_Nyq = freq_s / 2.
     numer = scipy.signal.firwin(numtaps=M_fir, cutoff=freq_cut, nyq=freq_Nyq)
@@ -97,7 +97,7 @@ def init_preprocessors(
             freq_s_decimated,
             M_fir)
     print 'Created numer, denom:\n', numer, '\n', denom
-    
+
     # Init scaler
     # For the filtered data
     X_filt = scipy.signal.lfilter(numer, denom, X_raw.T).T
@@ -321,7 +321,7 @@ def load_data_csv(data_csv_filename_list, decimation_factor):
     #labels = np.concatenate((labels_list[0], labels_list[1], labels_list[2]), axis=0)
     X_raw = np.concatenate(X_list, axis=0)
     labels = np.concatenate(labels_list, axis=0)
-    
+
     # Downsample the data
     downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
     print 'downsample_indices:\n', downsample_indices
@@ -336,13 +336,13 @@ def load_data_csv(data_csv_filename_list, decimation_factor):
 ########################################################################################################################
 
 
-def load_data_bdf(data_bdf_filename_list, decimation_factor):
-    
+def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
+
     # TODO with list
     filename = data_bdf_filename_list[0]
     logging.debug('bdf filename: %s', filename)
     recording_obj = pybdf.bdfRecording(filename)
-    
+
     # Get recording information
     logging.debug('sampling_rate [Hz]: %f', recording_obj.sampRate[0])
     logging.debug('duration [s]: %f', recording_obj.duration)
@@ -350,22 +350,22 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
     logging.debug('unit of measure: %s', recording_obj.physDim[0])
     print 'channel labels:', recording_obj.chanLabels
     print 'dataChanLabels:', recording_obj.dataChanLabels
-    
+
     # Convert the data channel labels to integers, otherwise pybdf runs into a bug
     for i_label in range(len(recording_obj.dataChanLabels)):
         recording_obj.dataChanLabels[i_label] = i_label
     print 'dataChanLabels:', recording_obj.dataChanLabels
-    
+
     # Get the data object
     data_obj = recording_obj.getData()
-    
+
     # Get the signal data from the data object
     logging.debug('Getting the signal data from the data object...')
     X_raw = data_obj['data'].T
     logging.debug('Getting the signal data from the data object finished.')
     logging.debug('X_raw shape: %d, %d', X_raw.shape[0], X_raw.shape[1])
     #time_axis = np.arange(X_raw.shape[1]) / recording_obj.sampRate[0]
-    
+
     # Get the event information from the data object
     # Event codes: 247 is button pressed (1), 255 is button released (0)
     logging.debug('Getting the event data from the data object...')
@@ -374,7 +374,7 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
     print 'event_table[\'idx\']:\n', event_table['idx']
     print 'event_table[\'dur\']:\n', event_table['dur']
     logging.debug('Getting the event data from the data object finished.')
-    
+
     # Build the label feed from the event information
     logging.debug('Building the label feed from the event information...')
     labels = np.zeros((X_raw.shape[0], 1), np.float32)
@@ -384,7 +384,7 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
         if event_table['code'][i_event] == EVENT_CODE_ACTION:
             labels[event_table['idx'][i_event]:event_table['idx'][i_event+1], :] = 1.0
     logging.debug('Building the label feed from the event information finished.')
-    
+
     # Low-pass-filter the data before downsampling
     freq_sampling = recording_obj.sampRate[0]
     logging.debug('freq_sampling: %f', freq_sampling)
@@ -398,15 +398,17 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
             #plot=True)
     logging.debug('Low-pass filtering the data before downsampling...')
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
-    X_lpfiltered = scipy.signal.lfilter(tdfilt_numer, tdfilt_denom, X_raw.T).T
-    #X_lpfiltered = np.array(joblib.Parallel(n_jobs=params.NUM_PARALLEL_JOBS)
-    #                        (joblib.delayed(scipy.signal.lfilter)
-    #                                (tdfilt_numer, tdfilt_denom,
-    #                                X_raw[:, i_ch]) for i_ch in range(X_raw.shape[1]))).T
+    if num_cores > 1:
+        X_lpfiltered = np.array(joblib.Parallel(n_jobs=params.NUM_PARALLEL_JOBS)
+                                (joblib.delayed(scipy.signal.lfilter)
+                                        (tdfilt_numer, tdfilt_denom,
+                                        X_raw[:, i_ch]) for i_ch in range(X_raw.shape[1]))).T
+    else:
+        X_lpfiltered = scipy.signal.lfilter(tdfilt_numer, tdfilt_denom, X_raw.T).T
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
     logging.debug('Low-pass filtering the data before downsampling finished.')
     logging.debug('X_lpfiltered shape: %d, %d', X_lpfiltered.shape[0], X_lpfiltered.shape[1])
-    
+
     # Downsample the data
     downsample_indices = np.arange(0, X_lpfiltered.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
     print 'downsample_indices:\n', downsample_indices
@@ -420,8 +422,5 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor):
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
     logging.debug('Downsampling the data finished.')
     logging.debug('X_downsampled shape: %d, %d', X_downsampled.shape[0], X_downsampled.shape[1])
-    
+
     return X_downsampled, labels
-
-
-    
