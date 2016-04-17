@@ -64,7 +64,7 @@ def create_control_signal(labels_test, predictions, p_thresholds):
 
 
 
-    
+
 ########################################################################################################################
 #
 #    MAIN
@@ -100,19 +100,20 @@ if __name__ == '__main__':
         #print 'Main started in normal mode.'
 
     # Preliminary values
-    freq_s_decimated = 128.0
-    decimation_factor = params.FREQ_S_BDF / freq_s_decimated
-    num_channels = params.NUM_CHANNELS_BDF
+    num_channels = 128
+    num_event_types = 1
+    freq_sampling = 128.0
+    decimation_factor = 1.0
     freq_cut_lo = 5.0
     freq_cut_hi = 30.0
-    window_size_decimated_in_samples = int(params.WINDOW_SIZE_RAW_SECS * freq_s_decimated)
-    num_event_types = params.NUM_EVENT_TYPES_BDF
+    window_size_decimated_in_samples = int(params.WINDOW_SIZE_RAW_SECS * freq_sampling)
     M_fir = int(1.0 * window_size_decimated_in_samples)
     labels_names = ['btn dn']
     #labels_names = ['rh', 'lh', 'idle']
-    
+
     # Select the training data filenames
-    #data_filename_train_list = []
+    data_filename_train_list = []
+    data_filename_train_list.append('/home/user/Downloads/storage-double/OITI_2016/Pap_Henrik_20160404/pahe_rt11_128Hz.csv')
     #data_filename_train_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h10m35s.csv')
     #data_filename_train_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h17m46s.csv')
     #data_filename_train_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h26m54s.csv')
@@ -123,22 +124,25 @@ if __name__ == '__main__':
     #data_filename_train_list.append('../data/2016-04-02_2/MIBBCI_REC_20160402_19h17m10s_RAW.csv')
     #data_filename_train_list.append('../data/2016-04-02_2/MIBBCI_REC_20160402_19h21m49s_RAW.csv')
     #data_filename_train_base = 'emak_rc11'
-    data_filename_train_base = 'emak_rt11'
-    data_filename_train_list = []
-    data_filename_train_list.append(
-            'C:\\Users\\user\\Downloads\\storage_double\\OITI_2016\\Emri_Akos_20160330\\{}.bdf'.format(data_filename_train_base))
+    #data_filename_train_base = 'pahe_rt11'
+    #data_filename_train_list = []
+    #data_filename_train_list.append(
+    #        '/home/user/Downloads/storage-double/OITI_2016/Pap_Henrik_20160404/{}.bdf'.format(data_filename_train_base))
+            #'C:\\Users\\user\\Downloads\\storage_double\\OITI_2016\\Emri_Akos_20160330\\{}.bdf'.format(data_filename_train_base))
 
     # Select the test data filenames
-    #data_filename_test_list = []
+    data_filename_test_list = []
+    data_filename_test_list.append(data_filename_train_list[0])
     #data_filename_test_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h32m14s.csv')
     #data_filename_test_list.append('../data/2016-04-02/MIBBCI_REC_20160402_16h37m27s_RAW.csv')
     #data_filename_test_list.append('../data/2016-04-02_2/MIBBCI_REC_20160402_19h26m01s_RAW.csv')
     #data_filename_test_base = 'emak_rc11'
-    data_filename_test_base = 'emak_rt11'
-    data_filename_test_list = []
-    data_filename_test_list.append(
-            'C:\\Users\\user\\Downloads\\storage_double\\OITI_2016\\Emri_Akos_20160330\\{}.bdf'.format(data_filename_test_base))
-    
+    #data_filename_test_base = 'pahe_rt11'
+    #data_filename_test_list = []
+    #data_filename_test_list.append(
+    #        '/home/user/Downloads/storage-double/OITI_2016/Pap_Henrik_20160404/{}.bdf'.format(data_filename_test_base))
+            #'C:\\Users\\user\\Downloads\\storage_double\\OITI_2016\\Emri_Akos_20160330\\{}.bdf'.format(data_filename_test_base))
+
     # Set flow control switches
     is_net_pretrained = False
     #is_net_pretrained = True
@@ -146,7 +150,7 @@ if __name__ == '__main__':
     is_data_plot_needed = True
     is_save_decimated_data_train_needed = True
     is_save_decimated_data_train_needed = False
-    
+
     # Load/pretrain the net
     if is_net_pretrained:
 
@@ -162,7 +166,7 @@ if __name__ == '__main__':
             # Preprocess the data
             numer, denom, scaler = utils.init_preprocessors(
                     X_train_raw,
-                    freq_s_decimated,
+                    freq_sampling,
                     freq_cut_lo,
                     freq_cut_hi,
                     M_fir)
@@ -195,17 +199,22 @@ if __name__ == '__main__':
                 num_max_epochs=num_max_epochs)
 
         # Load the training data
-        logging.debug('Loading the straining data...')
-        X_train_raw, labels_train = utils.load_data(data_filename_train_list, decimation_factor)
+        logging.debug('Loading the training data...')
+        X_train_raw, labels_train = utils.load_data(
+                data_filename_train_list,
+                num_channels, num_event_types,
+                decimation_factor)
+        logging.debug('np.sum(labels_train): %f', np.sum(labels_train))
         logging.debug('Training data loaded.')
 
         # Preprocess the data
         numer, denom, scaler = utils.init_preprocessors(
                 X_train_raw,
-                freq_s_decimated,
+                freq_sampling,
                 freq_cut_lo,
                 freq_cut_hi,
-                M_fir)
+                M_fir,
+                plot=False)
         X_train_preproc, labels_train = utils.preprocess(
                 X_train_raw, labels_train,
                 tdfilt_numer=numer, tdfilt_denom=denom,
@@ -214,15 +223,18 @@ if __name__ == '__main__':
                 # mov_avg_window_size=params.MOVING_AVG_WINDOW_SIZE_SECS,
                 scaler=scaler)
         # labels_train = labels_train
-        
+
         # Plot the training data
-        logging.debug('Plotting the training data...')
         if is_data_plot_needed:
+            logging.debug('Plotting the preprocessed training data...')
             time_axis = np.arange(X_train_preproc.shape[0])
-            t_from = 2000
-            t_to = 2300
-            plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, 43])
-            plt.plot(time_axis[t_from:t_to], 100.0*labels_train[t_from:t_to])
+            t_from = 0
+            t_to = X_train_preproc.shape[0]
+            channels_to_plot = (14, 29, 76, 112)
+            #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, channels_to_plot], label='raw')
+            #plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, channels_to_plot], label='tdfilt')
+            plt.plot(time_axis[t_from:t_to], 1000.0*labels_train[t_from:t_to], label='event')
+            plt.legend(loc='lower right')
             plt.show()
 
         # Train the NN
@@ -238,19 +250,14 @@ if __name__ == '__main__':
 
         # Save the pipeline
         utils.save_processing_pipeline(nnet, numer, denom, scaler)
-    
+
 
     # Load the test data
     logging.debug('Loading the test data...')
-    X_test_raw, labels_test = utils.load_data(data_filename_test_list, decimation_factor)
-
-    # Save the decimated test data    
-    if is_save_decimated_data_test_needed:
-            np.savetxt('./data/{}_decimated_64Hz.csv'.format(data_filename_test_base),
-                    X=X_test_raw, fmt='%.9f', delimiter=",")
-                    #header='time, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, red, blue, idle',
-                    #comments='')
-
+    X_test_raw, labels_test = utils.load_data(
+            data_filename_test_list,
+            num_channels, num_event_types,
+            decimation_factor)
 
     # Pre-process the test data
     X_test_preproc, labels_test = utils.preprocess(
@@ -275,8 +282,10 @@ if __name__ == '__main__':
     nnet.batch_iterator_test = batch_iter_test_valid
     indices_test = np.arange(X_test_preproc.shape[0])
     logging.debug('Testing the net...')
+    utils.log_timestamp()
     predictions = nnet.predict_proba(indices_test)
-    logging.debug('predictions size: %d, %d', predictions.shape[0], predictions.shape[1])
+    utils.log_timestamp()
+    logging.debug('Predictions size: %d, %d', predictions.shape[0], predictions.shape[1])
 
     # Find the thresholds
     tpr_targets = (0.4, 0.4, 0.0)
@@ -290,4 +299,3 @@ if __name__ == '__main__':
         create_control_signal(labels_test, predictions, p_thresholds);
 
     logging.debug('Main terminates.')
-

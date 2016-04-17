@@ -1,6 +1,7 @@
 import utils
 import params
 import numpy as np
+import matplotlib.pyplot as plt
 import sys
 import logging
 import datetime
@@ -54,6 +55,18 @@ if __name__ == '__main__':
         time_axis = np.arange(X_decimated.shape[0]).reshape(X_decimated.shape[0], 1)
         data = np.concatenate((time_axis, X_decimated, labels), axis=1)
 
+        # Plot the data
+        if False:
+            time_to = 2048*5
+            time_axis = np.arange(time_to)
+            channels_to_plot = (12, 54, 76, 111)
+            #plt.plot(time_axis, X_raw[0:time_to, channels_to_plot], label='raw')
+            #plt.plot(time_axis, X_lpfiltered[0:time_to, channels_to_plot], label='tdfilt')
+            plt.plot(time_axis, data[0:time_to, -1], label='event')
+            plt.title('Decimated data')
+            plt.legend(loc='lower right')
+            plt.show()
+
         logging.debug('Timestamp: %s. Saving the data to file...', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
 
         # Save the decimated data to file
@@ -79,7 +92,7 @@ if __name__ == '__main__':
         else:
             data_filename_base = data_filename_tokens[0]
         logging.debug('data_filename_base: %s', data_filename_base)
-        np.savetxt(data_path + '{0}_decimated_{1}Hz.csv'.format(data_filename_base, int(freq_decimated)),
+        np.savetxt(data_path + '{0}_{1}Hz.csv'.format(data_filename_base, int(freq_decimated)),
                 #'C:\\Users\\user\\Downloads\\storage_double\\OITI_2016\\{0}\\{1}_decimated_{2}Hz.csv'
                 #        .format(data_folder_name, data_filename_base_list[i_filename], int(freq_decimated)),
                 X=data, fmt='%.9f', delimiter=",",

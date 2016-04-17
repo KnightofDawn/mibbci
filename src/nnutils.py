@@ -86,7 +86,7 @@ def train_nn_from_timeseries_data(
         window_size_samples,
         num_outputs,
         num_train_data_instances,
-        validation_data_ratio=0.2):
+        validation_data_ratio=0.4):
 
     # Dummy set for testing
     #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
@@ -123,7 +123,7 @@ def train_nn_from_timeseries_data(
 def train_nn_from_epoch_data(nnet,
         X_epoch_list, label_list,
         num_train_data_instances,
-        validation_data_ratio=0.2):
+        validation_data_ratio=0.4):
 
     # Dummy set for testing
     #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
@@ -157,10 +157,10 @@ def train_nn_from_timeseries(
         window_size_samples,
         num_outputs,
         num_train_data_instances,
+        validation_data_ratio=0.4,
         plot_history=False):
 
     # Init and train the NN
-    validation_data_ratio = params.VALIDATION_DATA_RATIO
     train_nn_from_timeseries_data(
             nnet,
             X_train, labels_train,
@@ -191,10 +191,10 @@ def train_nn_from_epochs(
         X_epoch_list,
         label_list,
         num_train_data_instances,
+        validation_data_ratio=0.4,
         plot_history=False):
 
     # Init and train the NN
-    validation_data_ratio = params.VALIDATION_DATA_RATIO
     train_nn_from_epoch_data(
             nnet, X_epoch_list, label_list, num_train_data_instances, validation_data_ratio)
     if plot_history:
@@ -211,4 +211,3 @@ def train_nn_from_epochs(
         plt.show()
 
     return nnet
-

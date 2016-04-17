@@ -85,24 +85,25 @@ def rereference(X_to_reref, id_ch_reref):
 
 def init_preprocessors(
         X_raw,
-        freq_s_decimated,
+        freq_sampling,
         freq_cut_lo,
         freq_cut_hi,
-        M_fir):
+        M_fir,
+        plot=False):
 
     # Init time-domain filters
     numer, denom = create_bandpass_filter(
             freq_cut_lo,
             freq_cut_hi,
-            freq_s_decimated,
-            M_fir)
+            freq_sampling,
+            M_fir,
+            plot)
     print 'Created numer, denom:\n', numer, '\n', denom
 
-    # Init scaler
-    # For the filtered data
+    # Init scaler for the filtered data
     X_filt = scipy.signal.lfilter(numer, denom, X_raw.T).T
     scaler = fit_scaler(X_filt)
-    print 'Fit scaler scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
+    print 'Fit scaler scaler.mean_, scaler.var_:\n', scaler.mean_, '\n', scaler.var_
 
     return numer, denom, scaler
 
@@ -161,7 +162,13 @@ def preprocess(
 ########################################################################################################################
 
 
-def calculate_auroc(labels_groundtruth, labels_predictions, labels_names, tpr_target_arr, plot=True):
+def calculate_auroc(
+        labels_groundtruth,
+        labels_predictions,
+        labels_names,
+        tpr_target_arr,
+        plot=True):
+
     print 'labels_groundtruth.shape, labels_predictions.shape:', labels_groundtruth.shape, labels_predictions.shape
 
     fpr_arr_list = []
@@ -214,6 +221,9 @@ def calculate_auroc(labels_groundtruth, labels_predictions, labels_names, tpr_ta
         plt.title('ROC')
         plt.legend(loc='lower right')
         plt.show()
+
+        # Save the plot
+        plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
 
     return threshold_target_arr
 
@@ -283,7 +293,7 @@ def load_processing_pipeline(filename_base):
 ########################################################################################################################
 
 
-def load_data(data_filename_list, decimation_factor):
+def load_data(data_filename_list, num_channels, num_event_types, decimation_factor):
 
     # Find out the extensions
     # TODO decide extension per filename, not per the whole list
@@ -293,7 +303,7 @@ def load_data(data_filename_list, decimation_factor):
 
     # Call the appropriate load function depending on the file extension
     if file_extension == '.csv':
-        X_raw, labels = load_data_csv(data_filename_list, decimation_factor)
+        X_raw, labels = load_data_csv(data_filename_list, num_channels, num_event_types, decimation_factor)
     elif file_extension == '.bdf':
         X_raw, labels = load_data_bdf(data_filename_list, decimation_factor)
     else:
@@ -305,16 +315,18 @@ def load_data(data_filename_list, decimation_factor):
 
 ########################################################################################################################
 
-def load_data_csv(data_csv_filename_list, decimation_factor):
+def load_data_csv(data_csv_filename_list, num_channels, num_event_types, decimation_factor):
     X_list = []
     labels_list = []
 
     for data_filename in data_csv_filename_list:
-        logging.debug('Loading data from %d ...', data_filename)
+        logging.debug(data_filename)
+        logging.debug('Loading data from %s ...', data_filename)
         data_loaded_train = np.loadtxt(fname=data_filename, delimiter=',', skiprows=1);
         print 'data_loaded.shape:', data_loaded_train.shape
-        X_list.append(data_loaded_train[:, 1:(1 + params.NUM_CHANNELS)])
-        labels_list.append(data_loaded_train[:, params.LABEL_ID_RED:(params.LABEL_ID_RED+params.NUM_EVENT_TYPES)])
+        num_data_cols = data_loaded_train.shape[1]
+        X_list.append(data_loaded_train[:, 1:(1 + num_channels)])
+        labels_list.append(data_loaded_train[:, (num_data_cols - num_event_types):num_data_cols])
         # print 'X_raw.shape', X_train_raw.shape
 
     #X = np.concatenate((X_list[0], X_list[1], X_list[2]), axis=0)
@@ -325,7 +337,7 @@ def load_data_csv(data_csv_filename_list, decimation_factor):
     # Downsample the data
     downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
     print 'downsample_indices:\n', downsample_indices
-    X_raw = X_raw[downsample_indices, 0:params.NUM_CHANNELS_CSV]
+    X_raw = X_raw[downsample_indices, 0:num_channels]
     labels = labels[downsample_indices]
     #X_raw = X_raw[::decimation_factor]
     #labels = labels[::decimation_factor]
@@ -380,9 +392,14 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
     labels = np.zeros((X_raw.shape[0], 1), np.float32)
     n_events = len(event_table['code'])
     EVENT_CODE_ACTION = 247
-    for i_event in range(n_events-1):
+    #EVENT_CODE_IDLE = 255
+    for i_event in range(1, n_events):
         if event_table['code'][i_event] == EVENT_CODE_ACTION:
-            labels[event_table['idx'][i_event]:event_table['idx'][i_event+1], :] = 1.0
+            labels[(event_table['idx'][i_event] - params.EVENT_LENGTH_SAMPLES/2)
+                    :(event_table['idx'][i_event] + params.EVENT_LENGTH_SAMPLES/2), :] = 1.0
+        #if event_table['code'][i_event] == EVENT_CODE_ACTION:
+        #    labels[event_table['idx'][i_event]:event_table['idx'][i_event+1], :] = 1.0
+    logging.debug('np.sum(labels): %f', np.sum(labels))
     logging.debug('Building the label feed from the event information finished.')
 
     # Low-pass-filter the data before downsampling
@@ -409,6 +426,17 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
     logging.debug('Low-pass filtering the data before downsampling finished.')
     logging.debug('X_lpfiltered shape: %d, %d', X_lpfiltered.shape[0], X_lpfiltered.shape[1])
 
+    # Plot the data
+    if False:
+        time_to = 2048*5
+        time_axis = np.arange(time_to)
+        channels_to_plot = (12, 54, 76, 111)
+        #plt.plot(time_axis, X_raw[0:time_to, channels_to_plot], label='raw')
+        #plt.plot(time_axis, X_lpfiltered[0:time_to, channels_to_plot], label='tdfilt')
+        plt.plot(time_axis, labels[0:time_to], label='event')
+        plt.legend(loc='lower right')
+        plt.show()
+
     # Downsample the data
     downsample_indices = np.arange(0, X_lpfiltered.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
     print 'downsample_indices:\n', downsample_indices
@@ -424,3 +452,12 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
     logging.debug('X_downsampled shape: %d, %d', X_downsampled.shape[0], X_downsampled.shape[1])
 
     return X_downsampled, labels
+
+
+################################################################################
+
+def log_timestamp():
+    logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+
+
+################################################################################

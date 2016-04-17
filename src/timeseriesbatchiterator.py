@@ -3,6 +3,7 @@
 import params
 import numpy as np
 from nolearn.lasagne import BatchIterator
+import logging
 
 TAG = '[CustomBatchIterator] '
 
@@ -13,20 +14,21 @@ class TimeSeriesBatchIterator(BatchIterator):
     def __init__(self, data, labels=None,
             window_size_samples=-1, num_outputs=-1,     # TODO nicer
             *args, **kwargs):
-        
+
         super(TimeSeriesBatchIterator, self).__init__(*args, **kwargs)
 
         self._window_size_samples = window_size_samples
-        print 'self._window_size_samples:', self._window_size_samples
-        
+        logging.debug('%s self._window_size_samples: %d', TAG, self._window_size_samples)
+
         self._X = data
-        print TAG, 'self._X size:', self._X.shape
-        
+        logging.debug('%s self._X size: %d, %d', TAG, self._X.shape[0], self._X.shape[1])
+
         self._num_conv_dims = 2     # be 2 the default; num_conv_dims
 
         if labels is not None:
             self._y = labels
-            print TAG, 'self._y size:', self._y.shape
+            logging.debug('%s self._y size: %d, %d', TAG, self._y.shape[0], self._y.shape[1])
+            logging.debug('%s np.sum(self._y): %f', TAG, np.sum(self._y))
 
         if self._num_conv_dims == 2:    # Conv2D case
             self._X_padded = np.concatenate(
@@ -42,8 +44,8 @@ class TimeSeriesBatchIterator(BatchIterator):
                     [self.batch_size, self._X.shape[1], self._window_size_samples],
                     np.float32)   # Pre-allocating buffers
         else:
-            print TAG, 'Wrong num_conv_dims:', num_conv_dims
-            
+            logging.error('%s Wrong num_conv_dims: %d', TAG, num_conv_dims);
+
         print TAG, 'self._X_padded size:', self._X_padded.shape
         print TAG, 'self._X_buf size:', self._X_buf.shape
 
@@ -91,6 +93,8 @@ class TimeSeriesBatchIterator(BatchIterator):
                 if y_indices is not None:
                     y_batch[i_index] = self._y[i_time]
                     #print TAG, "y_batch[i_index]:\n", y_batch[i_index]
+                else:
+                    logging.debug('%s Forwarding test data instance %d/%d', TAG, i_index, y_indices.shape[0])
         elif self._num_conv_dims == 1:   # Conv1D case
             for i_index, i_time in enumerate(X_indices):
                 if i_time < 0:

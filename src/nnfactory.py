@@ -23,17 +23,17 @@ def create_nn_medium(num_inputs, num_outputs, num_max_epochs):
     layer_obj = lasagne.layers.InputLayer(
             shape=(None, 1, num_inputs[0], num_inputs[1]), name='Input')
     # To Conv1DLayer: 3D tensor, with shape (batch_size, num_input_channels, input_length)
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=8, filter_size=(3, 1),
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=1, filter_size=(1, 97),
             nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv_1')
-    #layer_obj = lasagne.layers.MaxPool2DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool_1')
-    #layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_1')
+    layer_obj = lasagne.layers.MaxPool2DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool_1')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_1')
     #
-    #layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=16, filter_size=(5, 1),
-    #        nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv_2')
-    #layer_obj = lasagne.layers.MaxPool2DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool_2')
-    #layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_2')
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=8, filter_size=(16, 1),
+            nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv_2')
+    layer_obj = lasagne.layers.MaxPool2DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool_2')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_2')
     #
-    #layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 1),
+    #layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=16, filter_size=(3, 1),
     #        nonlinearity=params.INTERNAL_NONLINEARITY_CONV, name='Conv_3')
     #layer_obj = lasagne.layers.MaxPool2DLayer(layer_obj, pool_size=params.MAXPOOL_SIZE, name='MaxPool_3')
     #layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=params.DROPOUT_PROBABILITY, name='Dropout_3')
@@ -118,5 +118,3 @@ def create_nn_big(num_max_epochs):
     #print 'nnet.predict_iter_: ', nnet.predict_iter_
 
     return nnet, layer_obj
-
-
