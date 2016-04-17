@@ -83,8 +83,10 @@ if __name__ == '__main__':
     #command_line_args_str = str(sys.argv)
     #print 'Command line args:', command_line_args_str
     #print 'sys.argv[1]:', sys.argv[1]
+    is_runtest_mode = False
     if len(sys.argv) > 1:
         if sys.argv[1] == '--runtest':
+            is_runtest_mode = True
             num_max_epochs = params.NUM_MAX_TRAIN_EPOCHS_RUNTEST
             num_train_data_instances = params.NUM_TRAIN_DATA_INSTANCES_RUNTEST
             #print 'Main started in runtest mode.'
@@ -104,9 +106,9 @@ if __name__ == '__main__':
     num_event_types = 1
     freq_sampling = 128.0
     decimation_factor = 1.0
-    freq_cut_lo = 5.0
-    freq_cut_hi = 30.0
-    window_size_decimated_in_samples = int(params.WINDOW_SIZE_RAW_SECS * freq_sampling)
+    freq_cut_lo = 4.0
+    freq_cut_hi = 40.0
+    window_size_decimated_in_samples = int(0.5 * freq_sampling)
     M_fir = int(1.0 * window_size_decimated_in_samples)
     labels_names = ['btn dn']
     #labels_names = ['rh', 'lh', 'idle']
@@ -207,6 +209,7 @@ if __name__ == '__main__':
         logging.debug('np.sum(labels_train): %f', np.sum(labels_train))
         logging.debug('Training data loaded.')
 
+
         # Preprocess the data
         numer, denom, scaler = utils.init_preprocessors(
                 X_train_raw,
@@ -228,12 +231,12 @@ if __name__ == '__main__':
         if is_data_plot_needed:
             logging.debug('Plotting the preprocessed training data...')
             time_axis = np.arange(X_train_preproc.shape[0])
-            t_from = 0
-            t_to = X_train_preproc.shape[0]
+            t_from = 10000
+            t_to = 10512    #X_train_preproc.shape[0]
             channels_to_plot = (14, 29, 76, 112)
             #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, channels_to_plot], label='raw')
-            #plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, channels_to_plot], label='tdfilt')
-            plt.plot(time_axis[t_from:t_to], 1000.0*labels_train[t_from:t_to], label='event')
+            plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, channels_to_plot], label='tdfilt')
+            plt.plot(time_axis[t_from:t_to], 10.0*labels_train[t_from:t_to], label='event')
             plt.legend(loc='lower right')
             plt.show()
 
@@ -258,6 +261,9 @@ if __name__ == '__main__':
             data_filename_test_list,
             num_channels, num_event_types,
             decimation_factor)
+    if is_runtest_mode:
+        X_test_raw = X_test_raw[0:1024]
+        labels_test = labels_test[0:1024]
 
     # Pre-process the test data
     X_test_preproc, labels_test = utils.preprocess(
@@ -286,6 +292,7 @@ if __name__ == '__main__':
     predictions = nnet.predict_proba(indices_test)
     utils.log_timestamp()
     logging.debug('Predictions size: %d, %d', predictions.shape[0], predictions.shape[1])
+    logging.debug('np.sum(predictions): %f', np.sum(predictions))
 
     # Find the thresholds
     tpr_targets = (0.4, 0.4, 0.0)

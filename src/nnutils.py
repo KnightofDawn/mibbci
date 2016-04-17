@@ -12,6 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import cPickle
+import logging
 
 
 TAG = '[nnutils]'
@@ -94,7 +95,7 @@ def train_nn_from_timeseries_data(
     # Create the batch iterators
     print 'X_train.shape:', X_train.shape
     index_start_validation = int((1.0 - validation_data_ratio) * X_train.shape[0])
-    print(TAG, 'index_start_validation: ', index_start_validation)
+    logging.debug('%s index_start_validation: %d', TAG, index_start_validation)
     batch_iter_train_base = TimeSeriesBatchIterator(
             data=X_train[:index_start_validation],
             labels=labels_train[:index_start_validation],

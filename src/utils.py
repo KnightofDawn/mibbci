@@ -223,7 +223,8 @@ def calculate_auroc(
         plt.show()
 
         # Save the plot
-        plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
+        #plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
+        plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)))
 
     return threshold_target_arr
 
@@ -416,12 +417,17 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
     logging.debug('Low-pass filtering the data before downsampling...')
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
     if num_cores > 1:
+        #X_lpfiltered = np.array(joblib.Parallel(n_jobs=params.NUM_PARALLEL_JOBS)
+        #                        (joblib.delayed(scipy.signal.lfilter)
+        #                                (tdfilt_numer, tdfilt_denom,
+        #                                X_raw[:, i_ch]) for i_ch in range(X_raw.shape[1]))).T
         X_lpfiltered = np.array(joblib.Parallel(n_jobs=params.NUM_PARALLEL_JOBS)
-                                (joblib.delayed(scipy.signal.lfilter)
+                                (joblib.delayed(scipy.signal.filtfilt)
                                         (tdfilt_numer, tdfilt_denom,
                                         X_raw[:, i_ch]) for i_ch in range(X_raw.shape[1]))).T
     else:
-        X_lpfiltered = scipy.signal.lfilter(tdfilt_numer, tdfilt_denom, X_raw.T).T
+        #X_lpfiltered = scipy.signal.lfilter(tdfilt_numer, tdfilt_denom, X_raw.T).T
+        X_lpfiltered = scipy.signal.filtfilt(tdfilt_numer, tdfilt_denom, X_raw.T).T
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
     logging.debug('Low-pass filtering the data before downsampling finished.')
     logging.debug('X_lpfiltered shape: %d, %d', X_lpfiltered.shape[0], X_lpfiltered.shape[1])

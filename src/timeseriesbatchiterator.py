@@ -37,12 +37,6 @@ class TimeSeriesBatchIterator(BatchIterator):
             self._X_buf = np.zeros(
                     [self.batch_size, 1, self._window_size_samples, self._X.shape[1]],
                     np.float32)   # Pre-allocating buffers
-        elif self._num_conv_dims==1:   # Conv1D case
-            self._X_padded = np.concatenate((np.zeros((self._window_size_samples-1, self._X.shape[1])),
-                    data), axis=0)     # Padding with zeros
-            self._X_buf = np.zeros(
-                    [self.batch_size, self._X.shape[1], self._window_size_samples],
-                    np.float32)   # Pre-allocating buffers
         else:
             logging.error('%s Wrong num_conv_dims: %d', TAG, num_conv_dims);
 
@@ -53,6 +47,8 @@ class TimeSeriesBatchIterator(BatchIterator):
 
         print TAG, 'self._X size:', self._X.shape
         print TAG, 'self._X_padded size:', self._X_padded.shape
+
+        self._counter = 0
 
     # End of init
 
@@ -81,7 +77,7 @@ class TimeSeriesBatchIterator(BatchIterator):
             for i_index, i_time in enumerate(X_indices):
 
                 if i_time < 0:
-                    i_time = np.random.randint((self._window_size_samples-1), self._X.shape[1])
+                    i_time = np.random.randint((self._window_size_samples-1), self._X.shape[0])
 
                 X_window = self._X_padded[i_time:i_time+self._window_size_samples, :]
                 #print(TAG, "X_window part:\n", X_window[0, 2:6, 20:25])
@@ -93,27 +89,18 @@ class TimeSeriesBatchIterator(BatchIterator):
                 if y_indices is not None:
                     y_batch[i_index] = self._y[i_time]
                     #print TAG, "y_batch[i_index]:\n", y_batch[i_index]
+                    #if y_batch[i_index] > 0.0:
+                    #    logging.debug('y_batch[i_index] > 0.0: %f', y_batch[i_index])
+                    #else:
+                    #    logging.debug('y_batch[i_index]: %f', y_batch[i_index])
                 else:
-                    logging.debug('%s Forwarding test data instance %d/%d', TAG, i_index, y_indices.shape[0])
-        elif self._num_conv_dims == 1:   # Conv1D case
-            for i_index, i_time in enumerate(X_indices):
-                if i_time < 0:
-                    i_time = np.random.randint((self._window_size_samples-1), self._X.shape[0])
-                X_window = self._X_padded[i_time:i_time+self._window_size_samples]
-                #print(TAG, "X_window part:\n", X_window[0, 2:6, 20:25])
-                #print("X_window size:", X_window.shape)
-                #print 'self._window_size_samples:', self._window_size_samples
-                X_batch[i_index] = TimeSeriesBatchIterator.create_X_instance(
-                        X_window, num_conv_dims=1)
-                #print 'X_batch.shape:', X_batch.shape
-                #X_batch[i_index] = X_window[::-1][::params.DEC_FACTOR].transpose()      # Reversing to get the latest point after the downsampling
-                #print TAG, "X_batch[i_index]:\n", X_batch[i_index]
-                if y_indices is not None:
-                    #print 'i_index, i_time:', i_index, i_time
-                    #print 'y_batch.shape:', y_batch.shape
-                    #print 'self._y.shape:', self._y.shape
-                    y_batch[i_index] = self._y[i_time]
-                    #print 'y_batch.shape:', y_batch.shape
+                    self._counter += 1
+                    if self._counter % 5000 == 0:
+                        logging.debug('%s self._counter: %d', TAG, self._counter)
+
+                #logging.debug('%s np.sum(y_batch): %f', TAG, np.sum(y_batch))
+                #logging.debug('%s np.sum(self._y): %f', TAG, np.sum(self._y))
+
         else:
             print TAG, 'Wrong num_conv_dims:', num_conv_dims
 
