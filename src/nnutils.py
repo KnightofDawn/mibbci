@@ -1,5 +1,6 @@
 
 
+import nnfactory
 from timeseriesbatchiterator import TimeSeriesBatchIterator
 from epochbatchiterator import EpochBatchIterator
 import utils
@@ -10,7 +11,7 @@ import theano
 import sklearn
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
+import datetime
 import cPickle
 import logging
 
@@ -22,12 +23,16 @@ TAG = '[nnutils]'
 
 ########################################################################################################################
 
-def load_nn(create_nn_func, filename):
+def load_nn(filename, nn_type, num_inputs, num_outputs, num_max_training_epochs):
 
     #nnet, nnet_last_layer = create_nn()
 
     # Load the NN with load_params_from
-    nnet, _ = create_nn_func()
+    nnet, _ = nnfactory.create_nn(
+            nn_type,
+            num_inputs,
+            num_outputs,
+            num_max_training_epochs)
     nnet.load_params_from(filename)
 
 
@@ -169,18 +174,23 @@ def train_nn_from_timeseries(
             num_outputs,
             num_train_data_instances,
             validation_data_ratio)
+
+    # Plot / save the training history
+    train_loss = np.array([i['train_loss'] for i in nnet.train_history_])
+    valid_loss = np.array([i['valid_loss'] for i in nnet.train_history_])
+    plt.plot(train_loss, linewidth=2, label='train')
+    plt.plot(valid_loss, linewidth=2, label='valid')
+    plt.grid()
+    plt.legend()
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    #plt.ylim(1e-3, 1e-2)
+    plt.yscale('log')
+    plt.savefig('models/training_history_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)))
     if plot_history:
-        train_loss = np.array([i["train_loss"] for i in nnet.train_history_])
-        valid_loss = np.array([i["valid_loss"] for i in nnet.train_history_])
-        plt.plot(train_loss, linewidth=3, label="train")
-        plt.plot(valid_loss, linewidth=3, label="valid")
-        plt.grid()
-        plt.legend()
-        plt.xlabel("epoch")
-        plt.ylabel("loss")
-        #plt.ylim(1e-3, 1e-2)
-        #plt.yscale("log")
         plt.show()
+    plt.yscale('linear')
+    plt.clf()
 
     return nnet
 

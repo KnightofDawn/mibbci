@@ -1,9 +1,10 @@
 '''
 
 TODO
-- write a shell script which is in the root folder and calls src/....py
-- auto save the roc images
-- write net scheme to the param file somehow
+- Artifact rej
+- fill the image holes
+- json serialization
+- Stop bursts by muting the output after a rh/lh for 0.5 secs
 
 
 http://rosinality.ncity.net/doku.php?id=python:installing_theano
@@ -84,22 +85,32 @@ if __name__ == '__main__':
     #print 'Command line args:', command_line_args_str
     #print 'sys.argv[1]:', sys.argv[1]
     is_runtest_mode = False
-    if len(sys.argv) > 1:
-        if sys.argv[1] == '--runtest':
+    is_plot_mode = False
+    for argv in sys.argv[1:]:
+        if argv == '--runtest':
             is_runtest_mode = True
-            num_max_epochs = params.NUM_MAX_TRAIN_EPOCHS_RUNTEST
-            num_train_data_instances = params.NUM_TRAIN_DATA_INSTANCES_RUNTEST
-            #print 'Main started in runtest mode.'
-            logging.debug('Main started in runtest mode.')
+        elif argv == '--plot':
+            is_plot_mode = True
         else:
-            #print 'Error: Unrecognized command line arguments.'
-            logging.error('Error: Unrecognized command line arguments.')
+            logging.error('Error: Unrecognized command line argument: %s', argv)
             sys.exit()
+    if is_runtest_mode:
+        num_max_epochs = params.NUM_MAX_TRAIN_EPOCHS_RUNTEST
+        num_train_data_instances = params.NUM_TRAIN_DATA_INSTANCES_RUNTEST
+        logging.debug('Main started in runtest mode.')
     else:
         num_max_epochs = params.NUM_MAX_TRAIN_EPOCHS
         num_train_data_instances = params.NUM_TRAIN_DATA_INSTANCES
         logging.debug('Main started in normal mode.')
-        #print 'Main started in normal mode.'
+
+    # Set flow control switches
+    is_net_pretrained = False
+    #is_net_pretrained = True
+    is_net_to_train_more = False
+    filename_pipeline_base = './models/MIBBCI_NN_medium_IMG_20160421_15h28m12s'
+    nn_type = 'medium_IMG'
+    #filename_train = '/home/user/Downloads/storage-double/OITI_2016/Pap_Henrik_20160404/pahe_rt11_128Hz.csv'
+    filename_train = '/home/user/Downloads/storage-double/OITI_2016/Emri_Akos_20160330/emak_rt12_128Hz.csv'
 
     # Preliminary values
     num_channels = 128
@@ -115,7 +126,7 @@ if __name__ == '__main__':
 
     # Select the training data filenames
     data_filename_train_list = []
-    data_filename_train_list.append('/home/user/Downloads/storage-double/OITI_2016/Pap_Henrik_20160404/pahe_rt11_128Hz.csv')
+    data_filename_train_list.append(filename_train)
     #data_filename_train_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h10m35s.csv')
     #data_filename_train_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h17m46s.csv')
     #data_filename_train_list.append('../data/2016-03-26/MIBBCI_REC_20160326_15h26m54s.csv')
@@ -145,25 +156,25 @@ if __name__ == '__main__':
     #        '/home/user/Downloads/storage-double/OITI_2016/Pap_Henrik_20160404/{}.bdf'.format(data_filename_test_base))
             #'C:\\Users\\user\\Downloads\\storage_double\\OITI_2016\\Emri_Akos_20160330\\{}.bdf'.format(data_filename_test_base))
 
-    # Set flow control switches
-    is_net_pretrained = False
-    #is_net_pretrained = True
-    is_net_to_train_more = False
-    is_data_plot_needed = True
-    is_save_decimated_data_train_needed = True
-    is_save_decimated_data_train_needed = False
-
     # Load/pretrain the net
     if is_net_pretrained:
 
         # Load the processing pipeline
-        filename_pipeline_base = './models/MIBBCI_NN_20160406_14h17m59s'
-        nnet, numer, denom, scaler = utils.load_processing_pipeline(filename_pipeline_base)
+        nnet, numer, denom, scaler = utils.load_processing_pipeline(
+                filename_pipeline_base,
+                nn_type=nn_type,
+                num_inputs=(window_size_decimated_in_samples, params.IMAGE_SIZE_BDF[0], params.IMAGE_SIZE_BDF[1]),
+                num_outputs=num_event_types,
+                num_max_training_epochs=num_max_epochs)
 
         if is_net_to_train_more:
 
             # Load the training data
-            X_train_raw, labels_train = utils.load_data(data_filename_train_list, decimation_factor)
+            X_train_raw, labels_train = utils.load_data(
+                    data_filename_train_list,
+                    num_channels,
+                    num_event_types,
+                    decimation_factor)
 
             # Preprocess the data
             numer, denom, scaler = utils.init_preprocessors(
@@ -182,23 +193,27 @@ if __name__ == '__main__':
             # labels_train = labels_train
 
             # Train the NN
-            nnet = nnfactory.train_nn_from_timeseries(
+            nnet = nnutils.train_nn_from_timeseries(
                     nnet,
                     X_train_preproc, labels_train,
                     window_size_decimated_in_samples,
                     num_event_types,
                     num_train_data_instances,
-                    plot_history=True)
+                    plot_history=False)
 
             # Save the pipeline
-            utils.save_processing_pipeline(nnet, numer, denom, scaler)
+            utils.save_processing_pipeline(
+                nnet, nn_type, numer, denom, scaler)
 
     else:   # If a new net is to be created
         # Init the NN
-        nnet, _ = nnfactory.create_nn_medium(
-                num_inputs=(window_size_decimated_in_samples, num_channels),
+        nn_type = 'medium_IMG'
+        nnet, _ = nnfactory.create_nn(
+                #type='small',
+                nn_type=nn_type,
+                num_inputs=(window_size_decimated_in_samples, params.IMAGE_SIZE_BDF[0], params.IMAGE_SIZE_BDF[1]),
                 num_outputs=num_event_types,
-                num_max_epochs=num_max_epochs)
+                num_max_training_epochs=num_max_epochs)
 
         # Load the training data
         logging.debug('Loading the training data...')
@@ -228,15 +243,16 @@ if __name__ == '__main__':
         # labels_train = labels_train
 
         # Plot the training data
-        if is_data_plot_needed:
+        if is_plot_mode:
             logging.debug('Plotting the preprocessed training data...')
             time_axis = np.arange(X_train_preproc.shape[0])
             t_from = 10000
-            t_to = 10512    #X_train_preproc.shape[0]
-            channels_to_plot = (14, 29, 76, 112)
-            #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, channels_to_plot], label='raw')
-            plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, channels_to_plot], label='tdfilt')
-            plt.plot(time_axis[t_from:t_to], 10.0*labels_train[t_from:t_to], label='event')
+            t_to = t_from + 300 * freq_sampling    #X_train_preproc.shape[0]
+            plot_rows = (6)
+            plot_cols = (7, 12, 17)
+            #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, plot_rows, plot_cols], label='raw')
+            plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, plot_rows, plot_cols], label='tdfilt')
+            plt.plot(time_axis[t_from:t_to], 5.0*labels_train[t_from:t_to], label='event')
             plt.legend(loc='lower right')
             plt.show()
 
@@ -248,11 +264,11 @@ if __name__ == '__main__':
                 window_size_decimated_in_samples,
                 num_event_types,
                 num_train_data_instances,
-                plot_history=True)
+                plot_history=False)
         logging.debug('Training the NN finished.')
 
         # Save the pipeline
-        utils.save_processing_pipeline(nnet, numer, denom, scaler)
+        utils.save_processing_pipeline(nnet, nn_type, numer, denom, scaler)
 
 
     # Load the test data
@@ -273,7 +289,8 @@ if __name__ == '__main__':
             #power=True,
             #mov_avg_window_size=params.MOVING_AVG_WINDOW_SIZE_SECS,
             scaler=scaler)
-    #labels_test = labels_test
+    X_test_preproc = X_test_preproc[0:40000, :]
+    labels_test = labels_test[0:40000, :]
 
     # Dummy set for testing
     #X_test_preproc = X_train = np.tile(np.reshape(labels_test[:, 0], (labels_test.shape[0], 1)), [1, params.NUM_CHANNELS])
@@ -297,7 +314,7 @@ if __name__ == '__main__':
     # Find the thresholds
     tpr_targets = (0.4, 0.4, 0.0)
     #p_thresholds = utils.calculate_auroc(labels_test, predictions, labels_names, tpr_targets, plot=True)
-    utils.calculate_auroc(labels_test, predictions, labels_names, tpr_targets, plot=True)
+    utils.calculate_auroc(labels_test, predictions, labels_names, tpr_targets, plot=is_plot_mode)
     p_thresholds = (0.7, 0.7, 0.7)
     logging.debug('p_thresholds: %f, %f, %f', p_thresholds[0], p_thresholds[1], p_thresholds[2])
 

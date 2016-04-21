@@ -21,7 +21,7 @@ class TimeSeriesBatchIterator(BatchIterator):
         logging.debug('%s self._window_size_samples: %d', TAG, self._window_size_samples)
 
         self._X = data
-        logging.debug('%s self._X size: %d, %d', TAG, self._X.shape[0], self._X.shape[1])
+        logging.debug('%s self._X size: %d, %d, %d', TAG, self._X.shape[0], self._X.shape[1], self._X.shape[2])
 
         self._num_conv_dims = 2     # be 2 the default; num_conv_dims
 
@@ -32,10 +32,10 @@ class TimeSeriesBatchIterator(BatchIterator):
 
         if self._num_conv_dims == 2:    # Conv2D case
             self._X_padded = np.concatenate(
-                    (np.zeros((self._window_size_samples-1, self._X.shape[1])), self._X),
+                    (np.zeros((self._window_size_samples-1, self._X.shape[1], self._X.shape[2])), self._X),
                     axis=0)     # Padding with zeros
             self._X_buf = np.zeros(
-                    [self.batch_size, 1, self._window_size_samples, self._X.shape[1]],
+                    (self.batch_size, self._window_size_samples, self._X.shape[1], self._X.shape[2]),
                     np.float32)   # Pre-allocating buffers
         else:
             logging.error('%s Wrong num_conv_dims: %d', TAG, num_conv_dims);

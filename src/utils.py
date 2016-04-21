@@ -7,14 +7,18 @@ import sklearn
 import scipy
 import math
 import matplotlib.pyplot as plt
+import time
 import datetime
+import json
 import cPickle
 import pybdf
 import joblib
 import os
 import logging
+import matplotlib.animation as animation
 
 
+TAG = '[utils]'
 
 
 ########################################################################################################################
@@ -41,7 +45,7 @@ def create_bandpass_filter(
     print 'freq_Nyq:', freq_Nyq, 'freqs_FIR_Hz:', freqs_FIR_Hz
     # numer = scipy.signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
     numer = scipy.signal.firwin(M_fir, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
-    denom = 1.
+    denom = np.array([1.])
     if plot:
         w, h = scipy.signal.freqz(numer)
         plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
@@ -63,7 +67,7 @@ def create_lowpass_filter(
     # Initialize the time-domain filter
     freq_Nyq = freq_s / 2.
     numer = scipy.signal.firwin(numtaps=M_fir, cutoff=freq_cut, nyq=freq_Nyq)
-    denom = 1.
+    denom = np.array([1.])
     if plot:
         w, h = scipy.signal.freqz(numer)
         plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
@@ -103,7 +107,7 @@ def init_preprocessors(
     # Init scaler for the filtered data
     X_filt = scipy.signal.lfilter(numer, denom, X_raw.T).T
     scaler = fit_scaler(X_filt)
-    print 'Fit scaler scaler.mean_, scaler.var_:\n', scaler.mean_, '\n', scaler.var_
+    print 'Fit scaler scaler.mean_, scaler.scale_:\n', scaler.mean_, '\n', scaler.scale_
 
     return numer, denom, scaler
 
@@ -145,6 +149,9 @@ def preprocess(
     # Scale
     X_preprocessed = scaler.transform(X_preprocessed)
 
+    # Reshape
+    X_preprocessed = flat_to_image(X_preprocessed, params.CHANNEL_NAMES_BS)
+
     # Plot
     #time_axis = np.arange(X_raw.shape[0])
     #len_plot = 1024
@@ -179,6 +186,7 @@ def calculate_auroc(
         # fpr_arr, tpr_arr, _ = roc_curve(label_feed_test, pred_feed)
         fpr_arr_temp, tpr_arr_temp, threshold_arr_temp = sklearn.metrics.roc_curve(labels_groundtruth[:, i_event], labels_predictions[:, i_event])
         auroc_val = sklearn.metrics.auc(fpr_arr_temp, tpr_arr_temp)
+        logging.debug('%s event %d auroc_val: %f', TAG, i_event, auroc_val)
         fpr_arr_list.append(fpr_arr_temp)
         tpr_arr_list.append(tpr_arr_temp)
         threshold_arr_list.append(threshold_arr_temp)
@@ -208,23 +216,21 @@ def calculate_auroc(
         plt.legend(loc='upper right')
         plt.show()
 
-        # Plot ROC
-        for i_event in range(labels_groundtruth.shape[1]):
-            plt.plot(fpr_arr_list[i_event], tpr_arr_list[i_event],
-                     label='{0} (auc={1:0.4f})'.format(labels_names[i_event], auroc_val_list[i_event]))
+    # Plot ROC
+    for i_event in range(labels_groundtruth.shape[1]):
+        plt.plot(fpr_arr_list[i_event], tpr_arr_list[i_event],
+                 label='{0} (auc={1:0.4f})'.format(labels_names[i_event], auroc_val_list[i_event]))
 
-        plt.plot([0, 1], [0, 1], 'k--')
-        plt.xlim([0.0, 1.0])
-        plt.ylim([0.0, 1.05])
-        plt.xlabel('FPR')
-        plt.ylabel('TPR')
-        plt.title('ROC')
-        plt.legend(loc='lower right')
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('FPR')
+    plt.ylabel('TPR')
+    plt.title('ROC')
+    plt.legend(loc='lower right')
+    plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
+    if plot:
         plt.show()
-
-        # Save the plot
-        #plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
-        plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)))
 
     return threshold_target_arr
 
@@ -247,46 +253,100 @@ def create_epochs(X_timeseries, label_timeseries, time_offset_samples):
 
 ########################################################################################################################
 
-def save_processing_pipeline(nnet, numer, denom, scaler):
+def save_processing_pipeline(nn, nn_type, numer, denom, scaler):
+
+    # Set the filename base
+    time_save = datetime.datetime.now()
+    filename_base = './models/MIBBCI_NN_{0}_{1}{2:02}{3:02}_{4:02}h{5:02}m{6:02}s'.format(
+                    nn_type,
+                    time_save.year, time_save.month, time_save.day,
+                    time_save.hour, time_save.minute, time_save.second)
 
     # Save the NN
-    time_save = datetime.datetime.now()
-    filename_base = './models/MIBBCI_NN_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s'.format(
-        time_save.year, time_save.month, time_save.day, time_save.hour, time_save.minute, time_save.second)
     filename_nn = filename_base + '.npz'
-    nnutils.save_nn(nnet, filename_nn)
+    nnutils.save_nn(nn, filename_nn)
+
+    # Save the others to json
+    print 'Saving numer, denom:\n', numer, '\n', denom
+    print 'Saving scaler.mean_, scaler.scale_, scaler.var_:\n', scaler.mean_, '\n', scaler.scale_, '\n', scaler.var_
+    indent = 4
+    separators = (',', ': ')
+    filename_json = filename_base + '.json'
+    json_dict = {
+            'nn_type': nn_type,
+            'nn_filename': filename_nn,
+            'numer': numer.tolist(),
+            'denom': denom.tolist(),
+            'scale_': scaler.scale_.tolist(),
+            'mean_': scaler.mean_.tolist(),
+            'var_': scaler.var_.tolist(),
+            'n_samples_seen_': scaler.n_samples_seen_
+            }
+    with open(filename_json, 'w') as outfile:
+        json.dump(json_dict, outfile, sort_keys=True, indent=indent, separators=separators)
+
 
     # Save the preproc stuff
-    print 'Before dump numer, denom:\n', numer, '\n', denom
-    filename_numer = filename_base + '_numer.p'
-    filename_denom = filename_base + '_denom.p'
-    cPickle.dump(numer, open(filename_numer, 'wb'))
-    cPickle.dump(numer, open(filename_denom, 'wb'))
-    print 'Before dump scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
-    filename_scaler = filename_base + '_scaler.p'
-    cPickle.dump(scaler, open(filename_scaler, 'wb'))
+    #print 'Before dump numer, denom:\n', numer, '\n', denom
+    #filename_numer = filename_base + '_numer.p'
+    #filename_denom = filename_base + '_denom.p'
+    #cPickle.dump(numer, open(filename_numer, 'wb'))
+    #cPickle.dump(numer, open(filename_denom, 'wb'))
+    #print 'Before dump scaler.mean_, scaler.scale_:', scaler.mean_, scaler.scale_
+    #filename_scaler = filename_base + '_scaler.p'
+    #cPickle.dump(scaler, open(filename_scaler, 'wb'))
 
     # Test-load the NN with load_params_from
     # load_nn(create_nn_medium, filename_nn)
 
     # Test-load the preproc stuff
     # scaler = cPickle.load(open(filename_p, 'rb'))
-    # print 'After load scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
+    # print 'After load scaler.mean_, scaler.scale_:', scaler.mean_, scaler.scale_
 
 
 ########################################################################################################################
 
-def load_processing_pipeline(filename_base):
-    filename_nn = filename_base + '.npz'
-    nnet = nnutils.load_nn(nnutils.create_nn_medium, filename_nn)
-    filename_numer = filename_base + '_numer.p'
-    filename_denom = filename_base + '_denom.p'
-    numer = cPickle.load(open(filename_numer, 'rb'))
-    denom = cPickle.load(open(filename_denom, 'rb'))
-    filename_scaler = filename_base + '_scaler.p'
-    scaler = cPickle.load(open(filename_scaler, 'rb'))
+def load_processing_pipeline(
+        filename_base,
+        nn_type,
+        num_inputs,
+        num_outputs,
+        num_max_training_epochs):
+
+    # Load the others from json
+    filename_json = filename_base + '.json'
+    logging.debug('%s filename_json: %s', TAG, filename_json)
+    with open(filename_json) as infile:
+        json_root = json.load(infile)
+    numer = np.asarray(json_root['numer'])
+    denom = np.asarray(json_root['denom'])
+    scaler = sklearn.preprocessing.StandardScaler()
+    scaler.scale_ = np.asarray(json_root['scale_'])
+    scaler.mean_ = np.asarray(json_root['mean_'])
+    scaler.var_ = np.asarray(json_root['var_'])
+    scaler.n_samples_seen_ = json_root['n_samples_seen_']
+    nn_type = json_root['nn_type']
+    filename_nn = json_root['nn_filename']
+    logging.debug('%s nn_type, filename_nn: %s, %s', TAG, nn_type, filename_nn)
     print 'Loaded numer, denom:\n', numer, '\n', denom
-    print 'Loaded scaler.mean_, scaler.var_:\n', scaler.mean_, '\n', scaler.var_
+    print 'Loaded scaler.mean_, scaler.scale_, scaler.var_:\n', scaler.mean_, '\n', scaler.scale_, '\n', scaler.var_
+
+    # Load the nn
+    filename_nn = filename_base + '.npz'
+    nnet = nnutils.load_nn(
+            filename_nn, nn_type,
+            num_inputs, num_outputs,
+            num_max_training_epochs)
+
+    # Load the others
+    #filename_numer = filename_base + '_numer.p'
+    #filename_denom = filename_base + '_denom.p'
+    #numer = cPickle.load(open(filename_numer, 'rb'))
+    #denom = cPickle.load(open(filename_denom, 'rb'))
+    #filename_scaler = filename_base + '_scaler.p'
+    #scaler = cPickle.load(open(filename_scaler, 'rb'))
+    #print 'Loaded numer, denom:\n', numer, '\n', denom
+    #print 'Loaded scaler.mean_, scaler.scale_:\n', scaler.mean_, '\n', scaler.scale_
 
     return nnet, numer, denom, scaler
 
@@ -294,7 +354,11 @@ def load_processing_pipeline(filename_base):
 ########################################################################################################################
 
 
-def load_data(data_filename_list, num_channels, num_event_types, decimation_factor):
+def load_data(
+    data_filename_list,
+    num_channels,
+    num_event_types,
+    decimation_factor):
 
     # Find out the extensions
     # TODO decide extension per filename, not per the whole list
@@ -436,10 +500,10 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
     if False:
         time_to = 2048*5
         time_axis = np.arange(time_to)
-        channels_to_plot = (12, 54, 76, 111)
-        #plt.plot(time_axis, X_raw[0:time_to, channels_to_plot], label='raw')
-        #plt.plot(time_axis, X_lpfiltered[0:time_to, channels_to_plot], label='tdfilt')
-        plt.plot(time_axis, labels[0:time_to], label='event')
+        channels_to_plot = (54, 111)
+        plt.plot(time_axis, X_raw[0:time_to, channels_to_plot], label='raw')
+        plt.plot(time_axis, X_lpfiltered[0:time_to, channels_to_plot], label='filt')
+        #plt.plot(time_axis, labels[0:time_to], label='event')
         plt.legend(loc='lower right')
         plt.show()
 
@@ -465,5 +529,224 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
 def log_timestamp():
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
 
+
+################################################################################
+
+def flat_to_image(data, channel_names, plot=False):
+
+    # Creating a dictionary
+    channel_list = list(enumerate(channel_names))
+    channel_id_dict = dict((channel[1], channel[0]) for channel in channel_list)
+    print TAG, 'channel_id_dict:\n', channel_id_dict
+
+    # Init the out data array
+    data_images = np.zeros((data.shape[0],
+            params.IMAGE_SIZE_BDF[0], params.IMAGE_SIZE_BDF[1]))
+    logging.debug('%s data_images.shape: %d, %d, %d',
+            TAG, data_images.shape[0], data_images.shape[1], data_images.shape[2])
+
+    # Copy the channels
+    for i_time in range(data.shape[0]):
+        i_col = 0
+
+        # col 0
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['A32']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['A31']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['A30']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['A29']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['A28']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['A27']]
+        data_images[i_time, 10, i_col] = data[i_time, channel_id_dict['A26']]
+        i_col += 1
+        # col 1
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['B5']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['A32']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['A32']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['A32']]
+        data_images[i_time, 10, i_col] = data[i_time, channel_id_dict['A32']]
+        i_col += 1
+        # col 2
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['B2']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['B3']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['B4']]
+        i_col += 1
+        # col 3
+        data_images[i_time, 1, i_col] = data[i_time, channel_id_dict['B1']]
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['B19']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['B13']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['B12']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['B11']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['B10']]
+        i_col += 1
+        # col 4
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['B18']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['B17']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['B16']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['B15']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['B14']]
+        i_col += 1
+        # col 5
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['B20']]
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['B21']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['B22']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['B23']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['B24']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['B25']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['B26']]
+        i_col += 1
+        # col 6
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['B31']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['B30']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['B29']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['B28']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['B27']]
+        i_col += 1
+        # col 7
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['B32']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['C5']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['C6']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['C7']]
+        i_col += 1
+        # col 8
+        data_images[i_time, 1, i_col] = data[i_time, channel_id_dict['C1']]
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['C2']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['C3']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['C4']]
+        i_col += 1
+        # col 9
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['C11']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['C10']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['C9']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['C8']]
+        i_col += 1
+        # col 10
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['C12']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['C16']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['C13']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['C14']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['C15']]
+        i_col += 1
+        # col 11
+        data_images[i_time, 0, i_col] = data[i_time, channel_id_dict['A1']]
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['C23']]
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['C22']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['C21']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['C20']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['C19']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['C18']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['C17']]
+        i_col += 1
+        # col 12
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['C25']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['C26']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['C27']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['C28']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['C29']]
+        i_col += 1
+        # col 13
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['C24']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['C32']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['C31']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['C30']]
+        i_col += 1
+        # col 14
+        data_images[i_time, 1, i_col] = data[i_time, channel_id_dict['D1']]
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['D2']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['D3']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['D4']]
+        i_col += 1
+        # col 15
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['D13']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['D5']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['D6']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['D7']]
+        i_col += 1
+        # col 16
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['D12']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['D11']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['D10']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['D9']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['D8']]
+        i_col += 1
+        # col 17
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['D14']]
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['D18']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['D19']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['D20']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['D21']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['D22']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['D23']]
+        i_col += 1
+        # col 18
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['D28']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['D27']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['D26']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['D25']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['D24']]
+        i_col += 1
+        # col 19
+        data_images[i_time, 1, i_col] = data[i_time, channel_id_dict['D15']]
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['D17']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['D29']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['D30']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['D31']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['D32']]
+        i_col += 1
+        # col 20
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['D16']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['A6']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['A7']]
+        i_col += 1
+        # col 21
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['A8']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['A9']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['A10']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['A11']]
+        data_images[i_time, 10, i_col] = data[i_time, channel_id_dict['A12']]
+        i_col += 1
+        # col 22
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['A5']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['A18']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['A17']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['A16']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['A15']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['A14']]
+        data_images[i_time, 10, i_col] = data[i_time, channel_id_dict['A13']]
+        i_col += 1
+        # col 23
+        data_images[i_time, 1, i_col] = data[i_time, channel_id_dict['A2']]
+        data_images[i_time, 2, i_col] = data[i_time, channel_id_dict['A3']]
+        data_images[i_time, 3, i_col] = data[i_time, channel_id_dict['A4']]
+        data_images[i_time, 4, i_col] = data[i_time, channel_id_dict['A19']]
+        data_images[i_time, 5, i_col] = data[i_time, channel_id_dict['A20']]
+        data_images[i_time, 6, i_col] = data[i_time, channel_id_dict['A21']]
+        data_images[i_time, 7, i_col] = data[i_time, channel_id_dict['A22']]
+        data_images[i_time, 8, i_col] = data[i_time, channel_id_dict['A23']]
+        data_images[i_time, 9, i_col] = data[i_time, channel_id_dict['A24']]
+        data_images[i_time, 10, i_col] = data[i_time, channel_id_dict['A25']]
+        i_col += 1
+
+    # Plot test
+    if plot:
+        def generate_data(i_time):
+            return data_images[i_time]
+        def update(data):
+            mat.set_data(data)
+            return mat
+        def data_gen():
+            for i_time in range(data_images.shape[0]):
+                yield generate_data(i_time)
+        fig, ax = plt.subplots()
+        mat = ax.matshow(generate_data(0))
+        plt.colorbar(mat)
+        ani = animation.FuncAnimation(fig, update, data_gen, interval=100)   #, save_count=50)
+        plt.show()
+
+    # Check an image
+    if False:
+        plt.matshow(data_images[-1])
+        plt.show()
+
+    return data_images
 
 ################################################################################
