@@ -224,11 +224,13 @@ def cursor_func():
     data_merged = np.concatenate((time_axis, X_raw_buf_cut, label_buf_cut), axis=1)
     print 'data_merged.shape: ', data_merged.shape
     time_save = datetime.now()
-    np.savetxt('../data/MIBBCI_REC_{0}{1:02}{2:02}_{3:02}h{4:02}m{5:02}s_RAW.csv'.format(time_save.year, time_save.month, time_save.day,
-               time_save.hour, time_save.minute, time_save.second),
-               X=data_merged, fmt='%.8f', delimiter=",",
-               header='time, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, red, blue, idle',
-               comments='')
+    np.savetxt('../data/MIBBCI_REC_{0}Hz_{1}{2:02}{3:02}_{4:02}h{5:02}m{6:02}s_RAW.csv'.format(
+            int(freq_sampling),
+            time_save.year, time_save.month, time_save.day,
+            time_save.hour, time_save.minute, time_save.second),
+            X=data_merged, fmt='%.8f', delimiter=",",
+            header='time, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, red, blue, idle',
+            comments='')
 
 
     print 'cursor_func(.) terminates.'
@@ -247,13 +249,15 @@ if __name__ == '__main__':
 
     print 'Main started.'
 
+    # Init params
+    freq_sampling = 128.0
 
     # Start the threads
     #thread_rec = threading.Thread(target=recorder.record)
     #thread_cursor = threading.Thread(target=cursor_func)
     #thread_rec.start()
     #thread_cursor.start()
-    cursor_func()
+    cursor_func(freq_sampling=freq_sampling)
 
 
 

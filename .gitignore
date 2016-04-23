@@ -3,4 +3,5 @@
 /models
 /old
 /misc
+/src/*.pyc
 mibbci.komodoproject

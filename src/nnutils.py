@@ -23,15 +23,15 @@ TAG = '[nnutils]'
 
 ########################################################################################################################
 
-def load_nn(filename, nn_type, num_inputs, num_outputs, num_max_training_epochs):
+def load_nn(filename, nn_type, num_nn_inputs, num_nn_outputs, num_max_training_epochs):
 
     #nnet, nnet_last_layer = create_nn()
 
     # Load the NN with load_params_from
     nnet, _ = nnfactory.create_nn(
             nn_type,
-            num_inputs,
-            num_outputs,
+            num_nn_inputs,
+            num_nn_outputs,
             num_max_training_epochs)
     nnet.load_params_from(filename)
 
@@ -87,10 +87,10 @@ def save_nn(nnet, filename):
 ########################################################################################################################
 
 def train_nn_from_timeseries_data(
-        nnet,
+        nnet, nn_type,
         X_train, labels_train,
         window_size_samples,
-        num_outputs,
+        num_nn_outputs,
         num_train_data_instances,
         validation_data_ratio=0.4):
 
@@ -98,20 +98,23 @@ def train_nn_from_timeseries_data(
     #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
 
     # Create the batch iterators
-    print 'X_train.shape:', X_train.shape
+    logging.debug('%s X_train.shape: %d, %d', TAG, X_train.shape[0], X_train.shape[1])
+    logging.debug('%s labels_train.shape: %d, %d', TAG, labels_train.shape[0], labels_train.shape[1])
     index_start_validation = int((1.0 - validation_data_ratio) * X_train.shape[0])
     logging.debug('%s index_start_validation: %d', TAG, index_start_validation)
     batch_iter_train_base = TimeSeriesBatchIterator(
             data=X_train[:index_start_validation],
             labels=labels_train[:index_start_validation],
+            nn_type=nn_type,
             window_size_samples=window_size_samples,
-            num_outputs=num_outputs,
+            num_nn_outputs=num_nn_outputs,
             batch_size=params.BATCH_SIZE)
     batch_iter_train_valid = TimeSeriesBatchIterator(
             X_train[index_start_validation:],
             labels=labels_train[index_start_validation:],
+            nn_type=nn_type,
             window_size_samples=window_size_samples,
-            num_outputs=num_outputs,
+            num_nn_outputs=num_nn_outputs,
             batch_size=params.BATCH_SIZE)
 
     # Add the batch iterators to the net
@@ -119,7 +122,7 @@ def train_nn_from_timeseries_data(
     nnet.batch_iterator_test = batch_iter_train_valid
 
     train_indices = np.zeros(num_train_data_instances, dtype=int) - 1    # Passing full zeros, the batch iterator will pull data instances randomly
-    print TAG, 'Fitting the classifier...'
+    logging.debug('%s Fitting the classifier...', TAG)
     #t_start_fit = time.time()
     nnet.fit(train_indices, train_indices)
 
@@ -158,20 +161,20 @@ def train_nn_from_epoch_data(nnet,
 ########################################################################################################################
 
 def train_nn_from_timeseries(
-        nnet,
+        nnet, nn_type,
         X_train, labels_train,
         window_size_samples,
-        num_outputs,
+        num_nn_outputs,
         num_train_data_instances,
         validation_data_ratio=0.4,
         plot_history=False):
 
     # Init and train the NN
     train_nn_from_timeseries_data(
-            nnet,
+            nnet, nn_type,
             X_train, labels_train,
             window_size_samples,
-            num_outputs,
+            num_nn_outputs,
             num_train_data_instances,
             validation_data_ratio)
 
@@ -186,7 +189,11 @@ def train_nn_from_timeseries(
     plt.ylabel('loss')
     #plt.ylim(1e-3, 1e-2)
     plt.yscale('log')
-    plt.savefig('models/training_history_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)))
+    #plt.savefig('models/training_history_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)))
+    plt.savefig('models/training_history_{0}_{1}.png'.format(
+                    nn_type,
+                    datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+                )
     if plot_history:
         plt.show()
     plt.yscale('linear')

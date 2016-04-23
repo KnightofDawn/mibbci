@@ -42,7 +42,7 @@ def create_bandpass_filter(
     freq_Nyq = freq_s / 2.
     #freqs_FIR_Hz = np.array([4. - freq_trans, 24. + freq_trans])
     freqs_FIR_Hz = np.array([freq_cut_lo, freq_cut_hi])
-    print 'freq_Nyq:', freq_Nyq, 'freqs_FIR_Hz:', freqs_FIR_Hz
+    logging.debug('%s freq_Nyq: %f, freqs_FIR_Hz %s:', TAG, freq_Nyq, str(freqs_FIR_Hz.tolist()))
     # numer = scipy.signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
     numer = scipy.signal.firwin(M_fir, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
     denom = np.array([1.])
@@ -118,8 +118,11 @@ def preprocess(
         X_raw, labels,
         tdfilt_numer=None, tdfilt_denom=None,
         reref_channel_id=None,
-        power=False, mov_avg_window_size=None,
-        scaler=None):
+        power=False,
+        moving_average=False,
+        window_size=None,
+        scaler=None,
+        nn_type=None):
 
     # Assign
     X_preprocessed = X_raw
@@ -140,17 +143,20 @@ def preprocess(
         X_preprocessed = X_preprocessed * X_preprocessed
 
     # Moving average
-    if mov_avg_window_size is not None:
+    if moving_average:
         len_orig = X_preprocessed.shape[0]
         X_preprocessed = scipy.signal.convolve(X_preprocessed.T,
-                np.ones((1, int(mov_avg_window_size * params.WINDOW_SIZE_DECIMATED_SAMPLES)))).T
+                np.ones((1, int(window_size * window_size)))).T
         X_preprocessed = X_preprocessed[0:len_orig]
 
     # Scale
     X_preprocessed = scaler.transform(X_preprocessed)
 
     # Reshape
-    X_preprocessed = flat_to_image(X_preprocessed, params.CHANNEL_NAMES_BS)
+    if nn_type == 'medium_IMG':
+        X_preprocessed = flat_to_image(X_preprocessed, params.CHANNEL_NAMES_BS)
+    #elif nn_type == 'medium_CovMat': does not fit in memory
+    #    X_preprocessed = flat_to_cov_mat(X_preprocessed, window_size)
 
     # Plot
     #time_axis = np.arange(X_raw.shape[0])
@@ -174,6 +180,7 @@ def calculate_auroc(
         labels_predictions,
         labels_names,
         tpr_target_arr,
+        classifier_name,
         plot=True):
 
     print 'labels_groundtruth.shape, labels_predictions.shape:', labels_groundtruth.shape, labels_predictions.shape
@@ -228,7 +235,11 @@ def calculate_auroc(
     plt.ylabel('TPR')
     plt.title('ROC')
     plt.legend(loc='lower right')
-    plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
+    #plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
+    plt.savefig('models/roc_{0}_{1}.png'.format(
+                    classifier_name,
+                    datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)),
+                bbox_inches='tight')
     if plot:
         plt.show()
 
@@ -309,8 +320,8 @@ def save_processing_pipeline(nn, nn_type, numer, denom, scaler):
 def load_processing_pipeline(
         filename_base,
         nn_type,
-        num_inputs,
-        num_outputs,
+        num_nn_inputs,
+        num_nn_outputs,
         num_max_training_epochs):
 
     # Load the others from json
@@ -333,9 +344,14 @@ def load_processing_pipeline(
 
     # Load the nn
     filename_nn = filename_base + '.npz'
+    if 'Seq' in self._nn_type:
+        nn_input_shape = (self._window_size_decimated_in_samples, X_train_preproc.shape[1])
+    elif 'CovMat' in self._nn_type:
+        nn_input_shape = (1, self._num_channels, self._num_channels)
     nnet = nnutils.load_nn(
             filename_nn, nn_type,
-            num_inputs, num_outputs,
+            nn_input_shape,
+            num_nn_outputs,
             num_max_training_epochs)
 
     # Load the others
@@ -355,22 +371,23 @@ def load_processing_pipeline(
 
 
 def load_data(
-    data_filename_list,
-    num_channels,
-    num_event_types,
-    decimation_factor):
+        data_filename,
+        signal_col_ids,
+        label_col_ids,
+        decimation_factor):
 
     # Find out the extensions
     # TODO decide extension per filename, not per the whole list
-    filename = data_filename_list[0]
-    file_extension = os.path.splitext(filename)[1]
+    file_extension = os.path.splitext(data_filename)[1]
     logging.debug('file_extension: %s', file_extension)
 
     # Call the appropriate load function depending on the file extension
+    logging.debug('%s signal_col_ids: %s', TAG, str(signal_col_ids))
+    logging.debug('%s label_col_ids: %s', TAG, str(label_col_ids))
     if file_extension == '.csv':
-        X_raw, labels = load_data_csv(data_filename_list, num_channels, num_event_types, decimation_factor)
+        X_raw, labels = load_data_csv(data_filename, signal_col_ids, label_col_ids, decimation_factor)
     elif file_extension == '.bdf':
-        X_raw, labels = load_data_bdf(data_filename_list, decimation_factor)
+        X_raw, labels = load_data_bdf(data_filename, decimation_factor)
     else:
         X_raw = None
         labels = None
@@ -380,45 +397,44 @@ def load_data(
 
 ########################################################################################################################
 
-def load_data_csv(data_csv_filename_list, num_channels, num_event_types, decimation_factor):
-    X_list = []
-    labels_list = []
+def load_data_csv(
+        data_csv_filename,
+        signal_col_ids,
+        label_col_ids,
+        decimation_factor):
 
-    for data_filename in data_csv_filename_list:
-        logging.debug(data_filename)
-        logging.debug('Loading data from %s ...', data_filename)
-        data_loaded_train = np.loadtxt(fname=data_filename, delimiter=',', skiprows=1);
-        print 'data_loaded.shape:', data_loaded_train.shape
-        num_data_cols = data_loaded_train.shape[1]
-        X_list.append(data_loaded_train[:, 1:(1 + num_channels)])
-        labels_list.append(data_loaded_train[:, (num_data_cols - num_event_types):num_data_cols])
-        # print 'X_raw.shape', X_train_raw.shape
-
-    #X = np.concatenate((X_list[0], X_list[1], X_list[2]), axis=0)
-    #labels = np.concatenate((labels_list[0], labels_list[1], labels_list[2]), axis=0)
-    X_raw = np.concatenate(X_list, axis=0)
-    labels = np.concatenate(labels_list, axis=0)
+    logging.debug('Loading data from %s ...', data_csv_filename)
+    data_loaded = np.loadtxt(fname=data_csv_filename, delimiter=',', skiprows=1);
+    logging.debug('%s data_loaded.shape: %s', TAG, str(data_loaded.shape))
+    logging.debug('%s signal_col_ids: %s', TAG, str(signal_col_ids))
+    logging.debug('%s label_col_ids: %s', TAG, str(label_col_ids))
+    signal_loaded = data_loaded[:, signal_col_ids]
+    labels_loaded = data_loaded[:, label_col_ids]
+    #num_data_cols = data_loaded.shape[1]
+    #signal_loaded = data_loaded[:, 1:(1 + num_channels)]
+    #labels_loaded = data_loaded[:, (num_data_cols - num_event_types):num_data_cols]
 
     # Downsample the data
-    downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
-    print 'downsample_indices:\n', downsample_indices
-    X_raw = X_raw[downsample_indices, 0:num_channels]
-    labels = labels[downsample_indices]
-    #X_raw = X_raw[::decimation_factor]
-    #labels = labels[::decimation_factor]
+    if int(decimation_factor) != 1:
+        downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
+        #logging.debug('downsample_indices:\n', downsample_indices)
+        signal_loaded = signal_loaded[downsample_indices, 0:num_channels]
+        labels_loaded = labels_loaded[downsample_indices]
 
-    return X_raw, labels
+    logging.debug('%s signal_loaded.shape: %s', TAG, str(signal_loaded.shape))
+    logging.debug('%s labels_loaded.shape: %s', TAG, str(labels_loaded.shape))
+    logging.debug('%s np.sum(labels_loaded, axis=0): %s', TAG, str(np.sum(labels_loaded, axis=0)))
+
+    return signal_loaded, labels_loaded
 
 
 ########################################################################################################################
 
 
-def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
+def load_data_bdf(data_bdf_filename, decimation_factor, num_cores=1):
 
-    # TODO with list
-    filename = data_bdf_filename_list[0]
-    logging.debug('bdf filename: %s', filename)
-    recording_obj = pybdf.bdfRecording(filename)
+    logging.debug('%s data_bdf_filename: %s', TAG, data_bdf_filename)
+    recording_obj = pybdf.bdfRecording(data_bdf_filename)
 
     # Get recording information
     logging.debug('sampling_rate [Hz]: %f', recording_obj.sampRate[0])
@@ -528,6 +544,27 @@ def load_data_bdf(data_bdf_filename_list, decimation_factor, num_cores=1):
 
 def log_timestamp():
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
+
+
+################################################################################
+
+def flat_to_cov_mat(data, window_size, plot=False):
+
+    # Pad the data
+    data_padded = np.concatenate((np.zeros((window_size-1, data.shape[1])), data), axis=0)
+    logging.debug('%s data_padded.shape: %s', TAG, str(data_padded.shape))
+
+    # Init the out data array
+    data_mats = np.zeros((data.shape[0], data.shape[1], data.shape[1]))
+    logging.debug('%s data_mats.shape: %d, %d, %d',
+            TAG, data_images.shape[0], data_images.shape[1], data_images.shape[2])
+
+    for i_time in range(data.shape[0]):
+        data_mats[i_time] = np.dot(
+                data_padded[i_time:(i_time+window_size)].T,
+                data_padded[i_time:(i_time+window_size)])
+
+    return data_mats
 
 
 ################################################################################
