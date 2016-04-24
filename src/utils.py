@@ -71,7 +71,7 @@ def create_lowpass_filter(
     if plot:
         w, h = scipy.signal.freqz(numer)
         plt.plot(freq_Nyq*w/math.pi, 20 * np.log10(abs(h)), 'b')
-        plt.ylabel('Amplitude [dB]', color='b')
+        plt.ylabel('Amplitude [dB]')
         plt.xlabel('Frequency [rad/sample]')
         plt.show()
 
@@ -93,6 +93,8 @@ def init_preprocessors(
         freq_cut_lo,
         freq_cut_hi,
         M_fir,
+        reref_channel_id=None,
+        artifact_threshold=None,
         plot=False):
 
     # Init time-domain filters
@@ -104,9 +106,13 @@ def init_preprocessors(
             plot)
     print 'Created numer, denom:\n', numer, '\n', denom
 
-    # Init scaler for the filtered data
-    X_filt = scipy.signal.lfilter(numer, denom, X_raw.T).T
-    scaler = fit_scaler(X_filt)
+    # Init scaler for the preprocessed data
+    X_preprocessed = scipy.signal.lfilter(numer, denom, X_raw.T).T
+    if reref_channel_id is not None:
+        X_preprocessed = rereference(X_preprocessed, reref_channel_id)
+    if artifact_threshold is not None:
+        X_preprocessed[abs(X_preprocessed) > artifact_threshold] = 0.0
+    scaler = fit_scaler(X_preprocessed)
     print 'Fit scaler scaler.mean_, scaler.scale_:\n', scaler.mean_, '\n', scaler.scale_
 
     return numer, denom, scaler
@@ -118,6 +124,7 @@ def preprocess(
         X_raw, labels,
         tdfilt_numer=None, tdfilt_denom=None,
         reref_channel_id=None,
+        artifact_threshold=None,
         power=False,
         moving_average=False,
         window_size=None,
@@ -138,8 +145,12 @@ def preprocess(
     if reref_channel_id is not None:
         X_preprocessed = rereference(X_preprocessed, reref_channel_id)
 
+    # Reject artifacts with a threshold
+    if artifact_threshold is not None:
+        X_preprocessed[abs(X_preprocessed) > artifact_threshold] = 0.0
+
     # Power
-    if power is True:
+    if power:
         X_preprocessed = X_preprocessed * X_preprocessed
 
     # Moving average
@@ -153,7 +164,7 @@ def preprocess(
     X_preprocessed = scaler.transform(X_preprocessed)
 
     # Reshape
-    if nn_type == 'medium_IMG':
+    if 'Img' in nn_type:
         X_preprocessed = flat_to_image(X_preprocessed, params.CHANNEL_NAMES_BS)
     #elif nn_type == 'medium_CovMat': does not fit in memory
     #    X_preprocessed = flat_to_cov_mat(X_preprocessed, window_size)
@@ -320,8 +331,8 @@ def save_processing_pipeline(nn, nn_type, numer, denom, scaler):
 def load_processing_pipeline(
         filename_base,
         nn_type,
-        num_nn_inputs,
-        num_nn_outputs,
+        nn_input_shape,
+        nn_output_shape,
         num_max_training_epochs):
 
     # Load the others from json
@@ -344,14 +355,10 @@ def load_processing_pipeline(
 
     # Load the nn
     filename_nn = filename_base + '.npz'
-    if 'Seq' in self._nn_type:
-        nn_input_shape = (self._window_size_decimated_in_samples, X_train_preproc.shape[1])
-    elif 'CovMat' in self._nn_type:
-        nn_input_shape = (1, self._num_channels, self._num_channels)
     nnet = nnutils.load_nn(
             filename_nn, nn_type,
             nn_input_shape,
-            num_nn_outputs,
+            nn_output_shape,
             num_max_training_epochs)
 
     # Load the others
@@ -492,8 +499,8 @@ def load_data_bdf(data_bdf_filename, decimation_factor, num_cores=1):
     tdfilt_numer, tdfilt_denom = create_lowpass_filter(
             freq_cut=freq_cut_downsampling,
             freq_s=freq_sampling,
-            M_fir=M_fir)
-            #plot=True)
+            M_fir=M_fir,
+            plot=True)
     logging.debug('Low-pass filtering the data before downsampling...')
     logging.debug('Timestamp: %s', datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
     if num_cores > 1:

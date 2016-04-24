@@ -18,18 +18,21 @@ if __name__ == '__main__':
     # Init values
     freq_decimated = 128.0
     num_channels = 16
-    num_event_types = 3
+    signal_col_ids = range(1, (1 + num_channels))
+    label_col_ids = [num_channels+1, num_channels+2, num_channels+3]
     channel_names = params.CHANNEL_NAMES_GTEC
     event_names = params.EVENT_NAMES_GTEC
 
     # Select the files to concatenate
     data_path = '/home/user/Downloads/storage-double/gUSBamp_20160402_VK_2/'
     data_filename_list = []
-    #data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_18h57m57s_RAW.csv')
+    data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_18h57m57s_RAW.csv')
+    data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h08m55s_RAW.csv')
+    data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h13m01s_RAW.csv')
     data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h17m10s_RAW.csv')
-    #data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h21m49s_RAW.csv')
-    data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h26m01s_RAW.csv')
-    data_filename_concatenated = 'MIBBCI_REC_128Hz_20160402_4-6_RAW.csv'
+    data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h21m49s_RAW.csv')
+    #data_filename_list.append(data_path + 'MIBBCI_REC_128Hz_20160402_19h26m01s_RAW.csv')
+    data_filename_concatenated = 'MIBBCI_REC_128Hz_20160402_1-2-3-4-5_RAW.csv'
 
     logging.debug('%s Timestamp: %s. Loading the next file...', TAG, datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
 
@@ -38,8 +41,10 @@ if __name__ == '__main__':
     labels_list = []
     for data_filename in data_filename_list:
         signal, labels = utils.load_data_csv(
-                data_filename,
-                num_channels, num_event_types, 1.0)
+                data_csv_filename=data_filename,
+                signal_col_ids=signal_col_ids,
+                label_col_ids=label_col_ids,
+                decimation_factor=1.0)
         signal_list.append(signal)
         labels_list.append(labels)
 

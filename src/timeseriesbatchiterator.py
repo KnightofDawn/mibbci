@@ -14,7 +14,8 @@ class TimeSeriesBatchIterator(BatchIterator):
     def __init__(self,
             data, labels=None,
             nn_type=None,
-            window_size_samples=-1, num_nn_outputs=-1,     # TODO nicer
+            window_size_samples=-1,
+            nn_output_shape=-1,     # TODO nicer
             *args, **kwargs):
 
         logging.debug('%s Initializing TimeSeriesBatchIterator...', TAG)
@@ -65,13 +66,30 @@ class TimeSeriesBatchIterator(BatchIterator):
                 self._X_buf = np.zeros(
                         (self.batch_size, self._window_size_samples, self._X.shape[1]),
                         np.float32)   # Pre-allocating buffers
+            elif 'RC' in self._nn_type:
+                self._X_padded = np.concatenate(
+                        (np.zeros((self._window_size_samples-1, self._X.shape[1])), self._X),
+                        axis=0)     # Padding with zeros
+                self._X_buf = np.zeros(
+                        (self.batch_size, 1, self._window_size_samples, self._X.shape[1]),
+                        np.float32)   # Pre-allocating buffers
+            elif 'LC' in self._nn_type:
+                self._X_padded = np.concatenate(
+                        (np.zeros((self._window_size_samples-1, self._X.shape[1])), self._X),
+                        axis=0)     # Padding with zeros
+                self._X_buf = np.zeros(
+                        (self.batch_size, 1, self._window_size_samples, self._X.shape[1]),
+                        np.float32)   # Pre-allocating buffers
+            else:
+                logging.error('%s Unknown nn_type.', TAG);
         else:
             logging.error('%s Wrong num_conv_dims: %d', TAG, num_conv_dims);
 
         logging.debug('%s self._X_padded size: %s', TAG, str(self._X_padded.shape))
         logging.debug('%s self._X_buf size: %s', TAG, str(self._X_buf.shape))
 
-        self._y_buf = np.zeros([self.batch_size, num_nn_outputs], np.float32)
+        self._y_buf = np.zeros([self.batch_size, nn_output_shape], np.float32)
+        logging.debug('%s self._y_buf size: %s', TAG, str(self._y_buf.shape))
 
         self._counter = 0
 
@@ -89,6 +107,10 @@ class TimeSeriesBatchIterator(BatchIterator):
             elif 'TxC' in nn_type:
                 X_instance = X_window
             elif 'Seq' in nn_type:
+                X_instance = X_window
+            elif 'RC' in nn_type:
+                X_instance = X_window
+            elif 'LC' in nn_type:
                 X_instance = X_window
             else:
                 logging.critical('%s Unknown NN type.', TAG)

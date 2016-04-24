@@ -73,9 +73,6 @@ NUM_PARALLEL_JOBS = 4
 
 # NN
 BATCH_SIZE = 32
-INTERNAL_NONLINEARITY_CONV = lasagne.nonlinearities.rectify
-DROPOUT_PROBABILITY = 0.5
-INTERNAL_NONLINEARITY_DENSE = lasagne.nonlinearities.rectify
 
 
 # Cursor

@@ -23,15 +23,15 @@ TAG = '[nnutils]'
 
 ########################################################################################################################
 
-def load_nn(filename, nn_type, num_nn_inputs, num_nn_outputs, num_max_training_epochs):
+def load_nn(filename, nn_type, nn_input_shape, nn_output_shape, num_max_training_epochs):
 
     #nnet, nnet_last_layer = create_nn()
 
     # Load the NN with load_params_from
     nnet, _ = nnfactory.create_nn(
             nn_type,
-            num_nn_inputs,
-            num_nn_outputs,
+            nn_input_shape,
+            nn_output_shape,
             num_max_training_epochs)
     nnet.load_params_from(filename)
 
@@ -90,7 +90,7 @@ def train_nn_from_timeseries_data(
         nnet, nn_type,
         X_train, labels_train,
         window_size_samples,
-        num_nn_outputs,
+        nn_output_shape,
         num_train_data_instances,
         validation_data_ratio=0.4):
 
@@ -107,14 +107,14 @@ def train_nn_from_timeseries_data(
             labels=labels_train[:index_start_validation],
             nn_type=nn_type,
             window_size_samples=window_size_samples,
-            num_nn_outputs=num_nn_outputs,
+            nn_output_shape=nn_output_shape,
             batch_size=params.BATCH_SIZE)
     batch_iter_train_valid = TimeSeriesBatchIterator(
             X_train[index_start_validation:],
             labels=labels_train[index_start_validation:],
             nn_type=nn_type,
             window_size_samples=window_size_samples,
-            num_nn_outputs=num_nn_outputs,
+            nn_output_shape=nn_output_shape,
             batch_size=params.BATCH_SIZE)
 
     # Add the batch iterators to the net
@@ -164,7 +164,7 @@ def train_nn_from_timeseries(
         nnet, nn_type,
         X_train, labels_train,
         window_size_samples,
-        num_nn_outputs,
+        nn_output_shape,
         num_train_data_instances,
         validation_data_ratio=0.4,
         plot_history=False):
@@ -174,7 +174,7 @@ def train_nn_from_timeseries(
             nnet, nn_type,
             X_train, labels_train,
             window_size_samples,
-            num_nn_outputs,
+            nn_output_shape,
             num_train_data_instances,
             validation_data_ratio)
 
