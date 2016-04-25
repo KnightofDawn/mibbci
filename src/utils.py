@@ -411,22 +411,32 @@ def load_data_csv(
         decimation_factor):
 
     logging.debug('Loading data from %s ...', data_csv_filename)
-    data_loaded = np.loadtxt(fname=data_csv_filename, delimiter=',', skiprows=1);
-    logging.debug('%s data_loaded.shape: %s', TAG, str(data_loaded.shape))
     logging.debug('%s signal_col_ids: %s', TAG, str(signal_col_ids))
     logging.debug('%s label_col_ids: %s', TAG, str(label_col_ids))
-    signal_loaded = data_loaded[:, signal_col_ids]
-    labels_loaded = data_loaded[:, label_col_ids]
+    cols_to_read = []
+    cols_to_read.extend(signal_col_ids)
+    cols_to_read.extend(label_col_ids)
+    logging.debug('%s cols_to_read: %s', TAG, str(cols_to_read))
+    logging.debug('%s Loading %s...', TAG, data_csv_filename)
+    data_loaded = np.loadtxt(fname=data_csv_filename, delimiter=',',
+            skiprows=1, usecols=cols_to_read);
+    logging.debug('%s data_loaded.shape: %s', TAG, str(data_loaded.shape))
+    signal_loaded = data_loaded[:, 0:len(signal_col_ids)]
+    labels_loaded = data_loaded[:, len(signal_col_ids):(len(signal_col_ids) + len(label_col_ids))]
     #num_data_cols = data_loaded.shape[1]
     #signal_loaded = data_loaded[:, 1:(1 + num_channels)]
     #labels_loaded = data_loaded[:, (num_data_cols - num_event_types):num_data_cols]
 
     # Downsample the data
     if int(decimation_factor) != 1:
-        downsample_indices = np.arange(0, X_raw.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
+        logging.debug('%s Decimating...', TAG)
+        downsample_indices = np.arange(0, signal_loaded.shape[0], int(decimation_factor)) + (int(decimation_factor)-1)
+        if downsample_indices[-1] >= signal_loaded.shape[0]:
+            downsample_indices = downsample_indices[0:-1]
         #logging.debug('downsample_indices:\n', downsample_indices)
-        signal_loaded = signal_loaded[downsample_indices, 0:num_channels]
-        labels_loaded = labels_loaded[downsample_indices]
+        signal_loaded = signal_loaded[downsample_indices, :]
+        labels_loaded = labels_loaded[downsample_indices, :]
+        logging.debug('%s Decimating finished.', TAG)
 
     logging.debug('%s signal_loaded.shape: %s', TAG, str(signal_loaded.shape))
     logging.debug('%s labels_loaded.shape: %s', TAG, str(labels_loaded.shape))

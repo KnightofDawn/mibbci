@@ -23,6 +23,12 @@ CHANNEL_NAMES_BIOSEMI = [
         'D17', 'D18', 'D19', 'D20', 'D21', 'D22', 'D23', 'D24', 'D25', 'D26', 'D27', 'D28', 'D29', 'D30', 'D31', 'D32',
         'EXG1', 'EXG2', 'EXG3', 'EXG4', 'EXG5', 'EXG6', 'EXG7', 'EXG8', 'Status']
 EVENT_NAMES_BIOSEMI = ['dn']
+CHANNEL_NAMES_GAL = [
+        'Fp1', 'Fp2', 'F7', 'F3', 'Fz', 'F4', 'F8', 'FC5',
+        'FC1', 'FC2', 'FC6', 'T7', 'C3', 'Cz', 'C4', 'T8',
+        'TP9', 'CP5', 'CP1', 'CP2', 'CP6', 'TP10', 'P7', 'P3',
+        'Pz', 'P4', 'P8', 'PO9', 'O1', 'Oz', 'O2', 'PO10']
+EVENT_NAMES_GAL = ['HandStart', 'FirstDigitTouch', 'BothStartLoadPhase', 'LiftOff', 'Replace', 'BothReleased']
 IMAGE_SIZE_BDF = (11, 24)   # rows, cols
 FREQ_S_CSV = 128.0
 FREQ_S_BDF = 2048.0

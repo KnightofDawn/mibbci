@@ -152,7 +152,7 @@ class TimeSeriesProcessor:
 
             # Plot the training data
             if self._is_plot_mode_on:
-                logging.debug('%s Plotting the preprocessed training data...', TAG)
+                logging.debug('%s Plotting the preprocessed training data... %s', TAG, self._nn_type)
                 time_axis = np.arange(X_train_preproc.shape[0])
                 if 'gtec' in self._nn_type:
                     t_from = 0
@@ -163,7 +163,7 @@ class TimeSeriesProcessor:
                     #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, plot_cols], label='raw')
                     plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, plot_cols], label='tdfilt')
                     plt.plot(time_axis[t_from:t_to], 10.0*labels_train[t_from:t_to], linewidth=3, label='event')
-                elif 'biosemi':
+                elif 'biosemi' in self._nn_type:
                     t_from = 20000
                     t_to = t_from + 1000 * self._freq_sampling
                     #plot_rows = (6)
@@ -172,8 +172,17 @@ class TimeSeriesProcessor:
                     #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, plot_cols], label='raw')
                     plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, plot_cols], label='tdfilt')
                     plt.plot(time_axis[t_from:t_to], -300000.0*labels_train[t_from:t_to], linewidth=3, label='event')
+                elif 'gal' in self._nn_type:
+                    t_from = 0
+                    t_to = t_from + 1000 * self._freq_sampling
+                    #plot_rows = (6)
+                    plot_cols = (0, 1, 2, 3, 4, 5, 6, 7)
+                    #plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, plot_rows, plot_cols], label='tdfilt')
+                    #plt.plot(time_axis[t_from:t_to], X_train_raw[t_from:t_to, plot_cols], label='raw')
+                    plt.plot(time_axis[t_from:t_to], X_train_preproc[t_from:t_to, plot_cols], label='tdfilt')
+                    plt.plot(time_axis[t_from:t_to], 10.0*labels_train[t_from:t_to], linewidth=3, label='event')
                 else:
-                    logging.error('%s Unknown amplifier make.', TAG)
+                    logging.critical('%s Unknown source make.', TAG)
 
                 plt.legend(loc='lower right')
                 plt.show()
@@ -211,8 +220,8 @@ class TimeSeriesProcessor:
                 label_col_ids=self._label_col_ids,
                 decimation_factor=self._decimation_factor)
         if self._is_runtest_mode_on:
-            X_test_raw = X_test_raw[0:1024]
-            labels_test = labels_test[0:1024]
+            X_test_raw = X_test_raw[0:X_test_raw.shape[0]/4]
+            labels_test = labels_test[0:labels_test.shape[0]/4]
 
         # Pre-process the test data
         X_test_preproc, labels_test = utils.preprocess(
@@ -249,7 +258,7 @@ class TimeSeriesProcessor:
         logging.debug('%s np.sum(predictions): %f', TAG, np.sum(predictions))
 
         # Find the thresholds
-        tpr_targets = (0.4, 0.4, 0.0)
+        tpr_targets = (0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
         utils.calculate_auroc(
                 labels_test, predictions,
                 self._event_name_list,
@@ -274,6 +283,8 @@ class TimeSeriesProcessor:
             nn_input_shape = (None, self._window_size_decimated_in_samples, self._num_channels)
         elif 'CovMat' in self._nn_type:
             nn_input_shape = (None, 1, self._num_channels, self._num_channels)
+        elif 'TxC' in self._nn_type:
+            nn_input_shape = (None, 1, self._window_size_decimated_in_samples, self._num_channels)
         else:
             logging.critical('%s Unknown NN type: %s', TAG, self._nn_type)
 

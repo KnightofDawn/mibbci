@@ -1,14 +1,22 @@
 '''
 
 TODO
+- Try without conv nonlinearity
+- GAL dataset: run HEDJ
+- LP filter before downsampling in utils.load_data_csv
 - IMG - Fill the image holes
 - Stop bursts by muting the output after a rh/lh for 0.5 secs
 
 Current bests:
 - gtec_CovMat_small
--
+- gtec_Seq_lstm
 
 
+Troubleshooting:
+- ValueError: Cannot have number of folds n_folds=5 greater than the number of samples: 3.
+    Data contains too few samples of one of the classes.
+
+Links:
 http://rosinality.ncity.net/doku.php?id=python:installing_theano
 
 '''
@@ -40,7 +48,7 @@ if __name__ == '__main__':
 
     # Command parameters
     is_runtest_mode_on = False
-    is_plot_mode_on = True
+    is_plot_mode_on = False
     is_net_pretrained = False
     is_net_to_train_more = False
 
@@ -48,17 +56,19 @@ if __name__ == '__main__':
     #nn_type = 'gtec_CovMat_medium'
     #nn_type = 'gtec_CovMat_small'
     #nn_type = 'gtec_Seq_recurrent'
-    nn_type = 'gtec_Seq_lstm'
+    #nn_type = 'gtec_Seq_lstm'
     #nn_type = 'gtec_RC'
     #nn_type = 'gtec_LC'
     #nn_type = 'biosemi_Seq_recurrent'
     #nn_type = 'biosemi_CovMat_medium'
+    nn_type = 'gal_TxC_small'
+    #nn_type = 'gal_Seq_lstm'
     filename_pipeline_base = './models/MIBBCI_NN_{0}_20160423_21h07m55s'.format(nn_type)
 
     # Set preliminary values
     if is_runtest_mode_on:
         num_max_training_epochs = 3
-        num_train_data_instances = 3
+        num_train_data_instances = 16
     else:
         num_max_training_epochs = 100
         num_train_data_instances = 1024
@@ -101,6 +111,26 @@ if __name__ == '__main__':
         M_fir = int(1.0 * window_size_decimated_in_samples)
         artifact_threshold = 25.0
         event_name_list = ['rh', 'lh', 'idle']
+    elif 'gal' in nn_type:
+        #
+        #filename_train = '/home/user/Downloads/storage-double/Kaggle_GAL_data/train/subj1-1_series1-7_RAW.csv'
+        filename_train = '/home/user/Downloads/storage-double/Kaggle_GAL_data/train/subj1-1_series1-2_RAW.csv'
+        #
+        filename_test = '/home/user/Downloads/storage-double/Kaggle_GAL_data/train/subj1-1_series8-8_RAW.csv'
+        #
+        num_channels = 32
+        signal_col_ids = range(1, (1 + num_channels))
+        label_col_ids = range((1 + num_channels), (1 + num_channels + 6))
+        freq_sampling = 500.0
+        decimation_factor = 4.0
+        freq_cut_lo = 4.0
+        freq_cut_hi = 40.0
+        window_size_decimated_in_samples = int(1.0 * freq_sampling / decimation_factor)
+        M_fir = int(1.0 * window_size_decimated_in_samples)
+        artifact_threshold = 200.0
+        event_name_list = params.EVENT_NAMES_GAL
+    else:
+        logging.critical('%s Unknown source make.', TAG)
 
     # Init the data processor
     proc = TimeSeriesProcessor(
