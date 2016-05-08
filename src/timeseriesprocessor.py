@@ -22,6 +22,7 @@ class TimeSeriesProcessor:
             freq_sampling, decimation_factor,
             freq_cut_lo, freq_cut_hi, M_fir,
             artifact_threshold,
+            is_scaling_needed,
             window_size_decimated_in_samples,
             filename_pipeline_base, nn_type,
             num_max_training_epochs, num_train_data_instances,
@@ -42,6 +43,7 @@ class TimeSeriesProcessor:
         self._freq_cut_hi = freq_cut_hi
         self._M_fir = M_fir
         self._artifact_threshold = artifact_threshold
+        self._is_scaling_needed = is_scaling_needed
         self._window_size_decimated_in_samples = window_size_decimated_in_samples
         #
         self._filename_pipeline_base = filename_pipeline_base
@@ -69,6 +71,7 @@ class TimeSeriesProcessor:
             nn_input_shape = self.get_nn_input_shape()
             nnet, numer, denom, scaler = utils.load_processing_pipeline(
                     self._filename_pipeline_base,
+                    self._is_scaling_needed,
                     nn_type=self._nn_type,
                     nn_input_shape=nn_input_shape,
                     nn_output_shape=self._num_event_types,
@@ -91,6 +94,8 @@ class TimeSeriesProcessor:
                         freq_cut_hi=self._freq_cut_hi,
                         M_fir=self._M_fir,
                         artifact_threshold=self._artifact_threshold)
+                if not self._is_scaling_needed:
+                    scaler = None
                 X_train_preproc, labels_train = utils.preprocess(
                         X_train_raw, labels_train,
                         tdfilt_numer=numer, tdfilt_denom=denom,
@@ -138,6 +143,8 @@ class TimeSeriesProcessor:
                     self._M_fir,
                     artifact_threshold=self._artifact_threshold,
                     plot=False)
+            if not self._is_scaling_needed:
+                scaler = None
             X_train_preproc, labels_train = utils.preprocess(
                     X_train_raw, labels_train,
                     tdfilt_numer=numer, tdfilt_denom=denom,
@@ -224,6 +231,8 @@ class TimeSeriesProcessor:
             labels_test = labels_test[0:labels_test.shape[0]/4]
 
         # Pre-process the test data
+        if not self._is_scaling_needed:
+            scaler = None
         X_test_preproc, labels_test = utils.preprocess(
                 X_test_raw, labels_test,
                 tdfilt_numer=numer, tdfilt_denom=denom,
@@ -234,8 +243,8 @@ class TimeSeriesProcessor:
                 scaler=scaler,
                 window_size=self._window_size_decimated_in_samples,
                 nn_type=self._nn_type)
-        X_test_preproc = X_test_preproc[0:40000, :]
-        labels_test = labels_test[0:40000, :]
+        #X_test_preproc =   X_test_preproc[0:40000, :]
+        #labels_test = labels_test[0:40000, :]
 
         # Dummy set for testing
         #X_test_preproc = X_train = np.tile(np.reshape(labels_test[:, 0], (labels_test.shape[0], 1)), [1, params.NUM_CHANNELS])

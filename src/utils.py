@@ -161,7 +161,8 @@ def preprocess(
         X_preprocessed = X_preprocessed[0:len_orig]
 
     # Scale
-    X_preprocessed = scaler.transform(X_preprocessed)
+    if scaler is not None:
+        X_preprocessed = scaler.transform(X_preprocessed)
 
     # Reshape
     if 'Img' in nn_type:
@@ -289,21 +290,29 @@ def save_processing_pipeline(nn, nn_type, numer, denom, scaler):
     nnutils.save_nn(nn, filename_nn)
 
     # Save the others to json
-    print 'Saving numer, denom:\n', numer, '\n', denom
-    print 'Saving scaler.mean_, scaler.scale_, scaler.var_:\n', scaler.mean_, '\n', scaler.scale_, '\n', scaler.var_
     indent = 4
     separators = (',', ': ')
     filename_json = filename_base + '.json'
-    json_dict = {
-            'nn_type': nn_type,
-            'nn_filename': filename_nn,
-            'numer': numer.tolist(),
-            'denom': denom.tolist(),
-            'scale_': scaler.scale_.tolist(),
-            'mean_': scaler.mean_.tolist(),
-            'var_': scaler.var_.tolist(),
-            'n_samples_seen_': scaler.n_samples_seen_
-            }
+    if scaler is not None:
+        print 'Saving numer, denom:\n', numer, '\n', denom
+        print 'Saving scaler.mean_, scaler.scale_, scaler.var_:\n', scaler.mean_, '\n', scaler.scale_, '\n', scaler.var_
+        json_dict = {
+                'nn_type': nn_type,
+                'nn_filename': filename_nn,
+                'numer': numer.tolist(),
+                'denom': denom.tolist(),
+                'scale_': scaler.scale_.tolist(),
+                'mean_': scaler.mean_.tolist(),
+                'var_': scaler.var_.tolist(),
+                'n_samples_seen_': scaler.n_samples_seen_
+                }
+    else:
+        json_dict = {
+                'nn_type': nn_type,
+                'nn_filename': filename_nn,
+                'numer': numer.tolist(),
+                'denom': denom.tolist(),
+                }
     with open(filename_json, 'w') as outfile:
         json.dump(json_dict, outfile, sort_keys=True, indent=indent, separators=separators)
 
@@ -330,6 +339,7 @@ def save_processing_pipeline(nn, nn_type, numer, denom, scaler):
 
 def load_processing_pipeline(
         filename_base,
+        is_scaling_needed,
         nn_type,
         nn_input_shape,
         nn_output_shape,
@@ -342,16 +352,19 @@ def load_processing_pipeline(
         json_root = json.load(infile)
     numer = np.asarray(json_root['numer'])
     denom = np.asarray(json_root['denom'])
-    scaler = sklearn.preprocessing.StandardScaler()
-    scaler.scale_ = np.asarray(json_root['scale_'])
-    scaler.mean_ = np.asarray(json_root['mean_'])
-    scaler.var_ = np.asarray(json_root['var_'])
-    scaler.n_samples_seen_ = json_root['n_samples_seen_']
+    if is_scaling_needed:
+        scaler = sklearn.preprocessing.StandardScaler()
+        scaler.scale_ = np.asarray(json_root['scale_'])
+        scaler.mean_ = np.asarray(json_root['mean_'])
+        scaler.var_ = np.asarray(json_root['var_'])
+        scaler.n_samples_seen_ = json_root['n_samples_seen_']
+        print 'Loaded numer, denom:\n', numer, '\n', denom
+        print 'Loaded scaler.mean_, scaler.scale_, scaler.var_:\n', scaler.mean_, '\n', scaler.scale_, '\n', scaler.var_
+    else:
+        scaler = None
     nn_type = json_root['nn_type']
     filename_nn = json_root['nn_filename']
     logging.debug('%s nn_type, filename_nn: %s, %s', TAG, nn_type, filename_nn)
-    print 'Loaded numer, denom:\n', numer, '\n', denom
-    print 'Loaded scaler.mean_, scaler.scale_, scaler.var_:\n', scaler.mean_, '\n', scaler.scale_, '\n', scaler.var_
 
     # Load the nn
     filename_nn = filename_base + '.npz'

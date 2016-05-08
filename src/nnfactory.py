@@ -36,6 +36,8 @@ def create_nn(
                 nnet, layer_obj = create_nn_gtec_CovMat_small(nn_input_shape, nn_output_shape, num_max_training_epochs)
             elif 'medium' in nn_type:
                 nnet, layer_obj = create_nn_gtec_CovMat_medium(nn_input_shape, nn_output_shape, num_max_training_epochs)
+            elif 'large' in nn_type:
+                nnet, layer_obj = create_nn_gtec_CovMat_large(nn_input_shape, nn_output_shape, num_max_training_epochs)
         elif 'Img' in nn_type:
             if 'small' in nn_type:
                 nnet, layer_obj = create_nn_gtec_Img_small(nn_input_shape, nn_output_shape, num_max_training_epochs)
@@ -337,6 +339,61 @@ def create_nn_gtec_CovMat_medium(nn_input_shape, nn_output_shape, num_max_traini
     layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=16, filter_size=(3, 3), name='Conv_4')
     #layer_obj = lasagne.layers.MaxPool2DLayer(layer_obj, pool_size=(2, 1), name='MaxPool_4')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_4')
+    #
+    layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=512, name='Dense_98')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_98')
+    #
+    layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=512, name='Dense_99')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_99')
+    #
+    layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=nn_output_shape,
+            nonlinearity=theano.tensor.nnet.sigmoid, name='Output')
+
+    nnet = nolearn.lasagne.NeuralNet(layer_obj,
+            update=lasagne.updates.adam, update_learning_rate=0.001,    # adam
+            #update=lasagne.updates.nesterov_momentum, update_learning_rate=0.01, update_momentum=0.9,  # Nesterov
+            objective_loss_function=nn_loss_func,
+            regression=True, max_epochs=num_max_training_epochs,
+            y_tensor_type=theano.tensor.matrix, verbose=1)
+    #nnet.initialize()
+    #print 'nnet.predict_iter_: ', nnet.predict_iter_
+
+    return nnet, layer_obj
+
+
+########################################################################################################################
+
+def create_nn_gtec_CovMat_large(nn_input_shape, nn_output_shape, num_max_training_epochs):
+    layer_obj = lasagne.layers.InputLayer(shape=nn_input_shape, name='Input')
+    # To Conv1DLayer: 3D tensor, with shape (batch_size, num_input_channels, input_length)
+    nonlinearity_conv = nonlinearity=lasagne.nonlinearities.linear
+
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+            nonlinearity=nonlinearity_conv, name='Conv_1')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_1')
+    #
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+            nonlinearity=nonlinearity_conv, name='Conv_2')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_2')
+    #
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+            nonlinearity=nonlinearity_conv, name='Conv_3')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_3')
+    #
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+            nonlinearity=nonlinearity_conv, name='Conv_4')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_4')
+    #
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+            nonlinearity=nonlinearity_conv, name='Conv_5')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_5')
+    #
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+            nonlinearity=nonlinearity_conv, name='Conv_6')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_6')
+    #
+    layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=512, name='Dense_97')
+    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_97')
     #
     layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=512, name='Dense_98')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_98')

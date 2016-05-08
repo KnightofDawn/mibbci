@@ -2,13 +2,12 @@
 
 TODO
 - Try without conv nonlinearity
-- GAL dataset: run HEDJ
 - LP filter before downsampling in utils.load_data_csv
 - IMG - Fill the image holes
 - Stop bursts by muting the output after a rh/lh for 0.5 secs
 
 Current bests:
-- gtec_CovMat_small
+- gtec_CovMat_medium on gtec dataset
 - gtec_Seq_lstm
 
 
@@ -53,6 +52,7 @@ if __name__ == '__main__':
     is_net_to_train_more = False
 
     # Set processing pipeline location and attributes
+    nn_type = 'gtec_CovMat_large'
     #nn_type = 'gtec_CovMat_medium'
     #nn_type = 'gtec_CovMat_small'
     #nn_type = 'gtec_Seq_recurrent'
@@ -61,16 +61,16 @@ if __name__ == '__main__':
     #nn_type = 'gtec_LC'
     #nn_type = 'biosemi_Seq_recurrent'
     #nn_type = 'biosemi_CovMat_medium'
-    nn_type = 'gal_TxC_small'
+    #nn_type = 'gal_TxC_small'
     #nn_type = 'gal_Seq_lstm'
-    filename_pipeline_base = './models/MIBBCI_NN_{0}_20160423_21h07m55s'.format(nn_type)
+    filename_pipeline_base = './models/MIBBCI_NN_gtec_CovMat_large_20160508_15h06m20s'
 
     # Set preliminary values
     if is_runtest_mode_on:
         num_max_training_epochs = 3
         num_train_data_instances = 16
     else:
-        num_max_training_epochs = 100
+        num_max_training_epochs = 40
         num_train_data_instances = 1024
     if 'biosemi' in nn_type:
         #
@@ -146,6 +146,7 @@ if __name__ == '__main__':
             freq_cut_hi=freq_cut_hi,
             M_fir=M_fir,
             artifact_threshold=artifact_threshold,
+            is_scaling_needed=False,
             window_size_decimated_in_samples=window_size_decimated_in_samples,
             filename_pipeline_base=filename_pipeline_base,
             nn_type=nn_type,

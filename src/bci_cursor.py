@@ -16,8 +16,9 @@ Older ideas:
 '''
 from recorder import Recorder
 from timeseriesbatchiterator import TimeSeriesBatchIterator
-import params
+import utils
 import nnutils
+import params
 import graphics
 import math
 import threading
@@ -27,7 +28,10 @@ from datetime import datetime
 from scipy import signal
 import matplotlib.pyplot as plt
 import cPickle
+import logging
 
+
+TAG = '[bci_cursor]'
 
 
 
@@ -36,14 +40,15 @@ import cPickle
 # 1-16 INDEXING, NOT 0-15: FC3, FCz, FC4, C5, C3, C1, Cz, C2, C4, C6, CP5, CPz, CP6, P3, Pz, P4
 
 #CONFIG_FILE_NAME = 'config_test.txt'
-is_simulation_mode = False
-#is_simulation_mode = True
+#is_simulation_mode = False
+is_simulation_mode = True
+is_control_mode = False
 
 
 ########################################################################################################################
 
 def get_time_domain_filters(freq_cut_lo, freq_cut_hi, freq_trans):
-    freq_Nyq = params.FREQ_S / 2.
+    freq_Nyq = freq_sampling / 2.
     freqs_FIR_Hz = np.array([freq_cut_lo - freq_trans, freq_cut_hi + freq_trans])
     # numer = signal.firwin(M_FIR, freqs_FIR, nyq=FREQ_S/2., pass_zero=False, window="hamming", scale=False)
     numer = signal.firwin(params.M_FIR, freqs_FIR_Hz, nyq=freq_Nyq, pass_zero=False, window="hamming", scale=False)
@@ -70,9 +75,16 @@ def calc_cursor_step(nnet, X_in):
 
 ########################################################################################################################
 
-def cursor_func():
+def cursor_func(
+        freq_sampling,
+        num_signal_channels,
+        num_event_types,
+        window_size_in_samples):
 
-    print 'cursor_func(.) entered.'
+    logging.debug('%s cursor_func(.) entered.', TAG)
+
+    len_padding = 5 * freq_sampling
+
     cursor_radius = 26
     w = 2 * math.pi / 10
 
@@ -80,14 +92,16 @@ def cursor_func():
     #numer, denom = get_time_domain_filters(8.0, 12.0, 0.5)
 
     # Init the NN
-    filename_base = '../models/MIBBCI_NN_medium_bestsofar'
-    filename_nn = filename_base + '.npz'
-    nnet = nnutils.load_nn(nnutils.create_nn_medium, filename_nn)
+    if is_control_mode:
+        filename_base = '../models/MIBBCI_NN_medium_bestsofar'
+        filename_nn = filename_base + '.npz'
+        nnet = nnutils.load_nn(nnutils.create_nn_medium, filename_nn)
 
     # Init the preproc stuff
-    filename_p = filename_base + '.p'
-    scaler = cPickle.load(open(filename_p, 'rb'))
-    print 'Loaded scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
+    if is_control_mode:
+        filename_p = filename_base + '.p'
+        scaler = cPickle.load(open(filename_p, 'rb'))
+        print 'Loaded scaler.mean_, scaler.var_:', scaler.mean_, scaler.var_
 
     # Init graphics
     win = graphics.GraphWin('Cursor', params.IMAGE_W, params.IMAGE_H)
@@ -99,35 +113,35 @@ def cursor_func():
     cursor_pos = cursor_pos_prev
 
     # Init event labels
-    event_arr_right = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    event_arr_right = np.zeros((params.LEN_DATA_CHUNK_READ, num_event_types))
     event_arr_right[:, params.EVENT_ID_RH] = np.ones(params.LEN_DATA_CHUNK_READ)
-    event_arr_left = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    event_arr_left = np.zeros((params.LEN_DATA_CHUNK_READ, num_event_types))
     event_arr_left[:, params.EVENT_ID_LH] = np.ones(params.LEN_DATA_CHUNK_READ)
-    event_arr_idle = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    event_arr_idle = np.zeros((params.LEN_DATA_CHUNK_READ, num_event_types))
     event_arr_idle[:, params.EVENT_ID_IDLE] = np.ones(params.LEN_DATA_CHUNK_READ)
-    #event_arr_calib = np.zeros((params.LEN_DATA_CHUNK_READ, params.NUM_EVENT_TYPES))
+    #event_arr_calib = np.zeros((params.LEN_DATA_CHUNK_READ, num_event_types))
     #event_arr_calib[:, 3] = np.ones(params.LEN_DATA_CHUNK_READ)
     cursor_event_list = []
-    cursor_color_arr_raw = np.zeros((int(params.LEN_PERIOD_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ), 3))
+    cursor_color_arr_raw = np.zeros((int(params.LEN_PERIOD_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ), 3))
     color_counter = 0
-    for i in range(int(params.LEN_IDLE_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+    for i in range(int(params.LEN_IDLE_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ)):
         cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_IDLE
         cursor_event_list.append(event_arr_idle)      # r, l, idle, calib
         color_counter += 1
-    for i in range(int(params.LEN_RIGHT_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+    for i in range(int(params.LEN_RIGHT_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ)):
         cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_RIGHT
         cursor_event_list.append(event_arr_right)
         color_counter += 1
-    for i in range(int(params.LEN_IDLE_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+    for i in range(int(params.LEN_IDLE_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ)):
         cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_IDLE
         cursor_event_list.append(event_arr_idle)
         color_counter += 1
-    for i in range(int(params.LEN_LEFT_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)):
+    for i in range(int(params.LEN_LEFT_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ)):
         cursor_color_arr_raw[color_counter, :] = params.CURSOR_COLOR_LEFT
         cursor_event_list.append(event_arr_left)
         color_counter += 1
-    conv_window = np.ones((params.LEN_COLOR_CONV_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ, 1))\
-                  / (1 * int(params.LEN_COLOR_CONV_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ))
+    conv_window = np.ones((params.LEN_COLOR_CONV_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ, 1))\
+                  / (1 * int(params.LEN_COLOR_CONV_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ))
     cursor_color_arr_ud = np.flipud(cursor_color_arr_raw)
     cursor_color_arr_ud_convd = signal.convolve(cursor_color_arr_ud.T, conv_window.T).T
     cursor_color_arr_final = np.flipud(cursor_color_arr_ud_convd[0:cursor_color_arr_raw.shape[0], :])
@@ -143,16 +157,16 @@ def cursor_func():
     # Initialize the amplifier
     if not is_simulation_mode:
         print 'Initializing the amp...'
-        recorder = Recorder('lslamp', params.FREQ_S, params.LEN_REC_BUF_SEC, params.NUM_CHANNELS)
+        recorder = Recorder('lslamp', freq_sampling, params.LEN_REC_BUF_SEC, num_signal_channels)
         thread_rec = threading.Thread(target=recorder.record)
         thread_rec.start()
 
     # Cursor control loop
-    X_raw_buf_live = np.zeros((int(params.FREQ_S*params.LEN_REC_BUF_SEC), params.NUM_CHANNELS))
-    label_buf_live = np.zeros((int(params.FREQ_S*params.LEN_REC_BUF_SEC), params.NUM_EVENT_TYPES))
+    X_raw_buf_live = np.zeros((int(freq_sampling*params.LEN_REC_BUF_SEC), num_signal_channels))
+    label_buf_live = np.zeros((int(freq_sampling*params.LEN_REC_BUF_SEC), num_event_types))
     counter = 0
     #while True:
-    while counter < (params.LEN_REC_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ):
+    while counter < (params.LEN_REC_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ):
         print 'counter: ', counter
 
         # Clear the canvas
@@ -164,39 +178,45 @@ def cursor_func():
             recorder.acknowledge_new_data()
             print 'recorder.new_data_counter:', recorder.new_data_counter
         else:
-            time.sleep(1.0 / (params.FREQ_S/params.LEN_DATA_CHUNK_READ))
-            data_last_chunk = 1000.0 * np.random.rand(int(params.LEN_DATA_CHUNK_READ), params.NUM_CHANNELS)
+            time.sleep(1.0 / (freq_sampling/params.LEN_DATA_CHUNK_READ))
+            data_last_chunk = 1000.0 * np.random.rand(int(params.LEN_DATA_CHUNK_READ), num_signal_channels)
             #print 'Random data_last_chunk size:', data_last_chunk
 
         # Insert the new sample into our time series
-        i_row_lb = int((counter+params.LEN_PADDING)*params.LEN_DATA_CHUNK_READ)
-        i_row_ub = int((counter+params.LEN_PADDING+1)*params.LEN_DATA_CHUNK_READ)
+        i_row_lb = int((counter+len_padding)*params.LEN_DATA_CHUNK_READ)
+        i_row_ub = int((counter+len_padding+1)*params.LEN_DATA_CHUNK_READ)
         X_raw_buf_live[i_row_lb:i_row_ub, :] = data_last_chunk
         #print 'data_last_chunk:', data_last_chunk
         label_buf_live[i_row_lb:i_row_ub, :]\
-                = cursor_event_list[counter % int(params.LEN_PERIOD_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)]
+                = cursor_event_list[counter % int(params.LEN_PERIOD_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ)]
 
         # Calculating cursor step
-        i_row_ub = int((counter+params.LEN_PADDING+1)*params.LEN_DATA_CHUNK_READ)
-        i_row_lb = i_row_ub - int(params.WINDOW_SIZE_RAW_SAMPLES)
+        i_row_ub = int((counter+len_padding+1)*params.LEN_DATA_CHUNK_READ)
+        i_row_lb = i_row_ub - int(window_size_in_samples)
         if i_row_lb >= 0:
             #print 'i_row_lb, i_row_ub:', i_row_lb, i_row_ub
             #print 'X_raw_buf_live[i_row_lb:i_row_ub, :].shape:', X_raw_buf_live[i_row_lb:i_row_ub, :].shape
-            X_window = nnutils.preprocess(X_raw_buf_live[i_row_lb:i_row_ub, :], scaler)
-            X_in = TimeSeriesBatchIterator.create_X_instance(X_window, conv_dim=1)
-            X_in = X_in.reshape(1, X_in.shape[0], X_in.shape[1])
-            #print 'X_window.shape:', X_window.shape
-            #print 'X_in.shape:', X_in.shape
-            cursor_step = calc_cursor_step(nnet, X_in.astype(np.float32))
+            if is_control_mode:
+                X_window = utils.preprocess(X_raw_buf_live[i_row_lb:i_row_ub, :], scaler)
+                X_in = TimeSeriesBatchIterator.create_X_instance(X_window, conv_dim=1)
+                X_in = X_in.reshape(1, X_in.shape[0], X_in.shape[1])
+                #print 'X_window.shape:', X_window.shape
+                #print 'X_in.shape:', X_in.shape
+                cursor_step = calc_cursor_step(nnet, X_in.astype(np.float32))
+            else:
+                #X_window = X_raw_buf_live[i_row_lb:i_row_ub, :]
+                cursor_step = 0
+
             cursor_pos = cursor_pos_prev + np.array([cursor_step, 0])
             #print 'cursor_pos: ', cursor_pos
+
         else:
             cursor_pos = cursor_pos_prev
 
         cursor_pos_point = graphics.Point(cursor_pos[0], cursor_pos[1])
         cursor_pos_prev = cursor_pos
         cursor = graphics.Circle(cursor_pos_point, cursor_radius)
-        color_temp = cursor_color_arr_final[counter % int(params.LEN_PERIOD_SEC * params.FREQ_S / params.LEN_DATA_CHUNK_READ)]
+        color_temp = cursor_color_arr_final[counter % int(params.LEN_PERIOD_SEC * freq_sampling / params.LEN_DATA_CHUNK_READ)]
         cursor.setFill(graphics.color_rgb(color_temp[0], color_temp[1], color_temp[2]))
         cursor.setOutline(graphics.color_rgb(color_temp[0], color_temp[1], color_temp[2]))
         cursor.draw(win)
@@ -213,8 +233,8 @@ def cursor_func():
     win.close()
 
     # Cut the padding from the data
-    i_row_lb = int(params.LEN_PADDING * params.LEN_DATA_CHUNK_READ)
-    i_row_ub = int((counter+params.LEN_PADDING)*params.LEN_DATA_CHUNK_READ)
+    i_row_lb = int(len_padding * params.LEN_DATA_CHUNK_READ)
+    i_row_ub = int((counter+len_padding)*params.LEN_DATA_CHUNK_READ)
     X_raw_buf_cut = X_raw_buf_live[i_row_lb:i_row_ub, :]
     label_buf_cut = label_buf_live[i_row_lb:i_row_ub, :]
 
@@ -251,13 +271,20 @@ if __name__ == '__main__':
 
     # Init params
     freq_sampling = 128.0
+    num_signal_channels = 16
+    num_event_types = 3
+    window_size_in_samples = freq_sampling
 
     # Start the threads
     #thread_rec = threading.Thread(target=recorder.record)
     #thread_cursor = threading.Thread(target=cursor_func)
     #thread_rec.start()
     #thread_cursor.start()
-    cursor_func(freq_sampling=freq_sampling)
+    cursor_func(
+            freq_sampling=freq_sampling,
+            num_signal_channels=num_signal_channels,
+            num_event_types=num_event_types,
+            window_size_in_samples=window_size_in_samples)
 
 
 
