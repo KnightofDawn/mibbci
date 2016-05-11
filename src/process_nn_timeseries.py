@@ -7,7 +7,7 @@ TODO
 - Stop bursts by muting the output after a rh/lh for 0.5 secs
 
 Current bests:
-- gtec_CovMat_medium on gtec dataset
+- gtec_CovMat_large on gtec dataset
 - gtec_Seq_lstm
 
 
@@ -50,6 +50,7 @@ if __name__ == '__main__':
     is_plot_mode_on = False
     is_net_pretrained = False
     is_net_to_train_more = False
+    is_control_simulation_on = True
 
     # Set processing pipeline location and attributes
     nn_type = 'gtec_CovMat_large'
@@ -96,8 +97,10 @@ if __name__ == '__main__':
         event_name_list = ['btn dn']
     elif 'gtec' in nn_type:
         #
-        filename_train = '/home/user/Downloads/storage-double/gUSBamp_20160402_VK_2/MIBBCI_REC_128Hz_20160402_1-2-3-4-5_RAW.csv'
+        #filename_train = '/home/user/Downloads/storage-double/gUSBamp_20160402_VK_2/MIBBCI_REC_128Hz_20160402_1-2-3-4-5_RAW.csv'
+        filename_train = '/home/user/Downloads/storage-double/gUSBamp_20160402_VK_2/MIBBCI_REC_128Hz_20160402_1-4-5_RAW.csv'
         #
+        #filename_test = '/home/user/Downloads/storage-double/gUSBamp_20160402_VK_2/MIBBCI_REC_128Hz_20160402_6_RAW.csv'
         filename_test = '/home/user/Downloads/storage-double/gUSBamp_20160402_VK_2/MIBBCI_REC_128Hz_20160402_6_RAW.csv'
         #
         num_channels = 16
@@ -152,10 +155,14 @@ if __name__ == '__main__':
             nn_type=nn_type,
             num_max_training_epochs=num_max_training_epochs,
             num_train_data_instances=num_train_data_instances,
-            plot=is_plot_mode_on, runtest=is_runtest_mode_on)
+            plot=is_plot_mode_on,
+            runtest=is_runtest_mode_on,
+            control_simulation=is_control_simulation_on)
 
     # Run the data processor
     proc.run(load_pipeline=is_net_pretrained, train_more=is_net_to_train_more)
+    
 
 
+    # Quit
     logging.debug('Main terminates.')

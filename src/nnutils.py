@@ -92,7 +92,7 @@ def train_nn_from_timeseries_data(
         window_size_samples,
         nn_output_shape,
         num_train_data_instances,
-        validation_data_ratio=0.4):
+        validation_data_ratio=params.VALIDATION_DATA_RATIO):
 
     # Dummy set for testing
     #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
@@ -132,7 +132,7 @@ def train_nn_from_timeseries_data(
 def train_nn_from_epoch_data(nnet,
         X_epoch_list, label_list,
         num_train_data_instances,
-        validation_data_ratio=0.4):
+        validation_data_ratio=params.VALIDATION_DATA_RATIO):
 
     # Dummy set for testing
     #X_train = np.tile(np.reshape(labels_train[:, 0], (labels_train.shape[0], 1)), [1, params.NUM_CHANNELS])
@@ -166,7 +166,7 @@ def train_nn_from_timeseries(
         window_size_samples,
         nn_output_shape,
         num_train_data_instances,
-        validation_data_ratio=0.4,
+        validation_data_ratio=params.VALIDATION_DATA_RATIO,
         plot_history=False):
 
     # Init and train the NN
@@ -190,7 +190,7 @@ def train_nn_from_timeseries(
     #plt.ylim(1e-3, 1e-2)
     plt.yscale('log')
     #plt.savefig('models/training_history_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)))
-    plt.savefig('models/training_history_{0}_{1}.png'.format(
+    plt.savefig('models/{0}_{1}_training-history.png'.format(
                     nn_type,
                     datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR))
                 )
@@ -209,7 +209,7 @@ def train_nn_from_epochs(
         X_epoch_list,
         label_list,
         num_train_data_instances,
-        validation_data_ratio=0.4,
+        validation_data_ratio=params.VALIDATION_DATA_RATIO,
         plot_history=False):
 
     # Init and train the NN

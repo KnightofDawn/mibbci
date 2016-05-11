@@ -7,6 +7,7 @@ import utils
 import params
 import numpy as np
 import matplotlib.pyplot as plt
+import datetime
 import logging
 
 
@@ -26,7 +27,9 @@ class TimeSeriesProcessor:
             window_size_decimated_in_samples,
             filename_pipeline_base, nn_type,
             num_max_training_epochs, num_train_data_instances,
-            plot=False, runtest=False):
+            plot=False,
+            runtest=False,
+            control_simulation=False):
 
         self._filename_train = filename_train
         self._filename_test = filename_test
@@ -53,6 +56,7 @@ class TimeSeriesProcessor:
 
         self._is_plot_mode_on = plot
         self._is_runtest_mode_on = runtest
+        self._is_control_simulation_on = control_simulation
 
         logging.debug('%s self._signal_col_ids: %s', TAG, str(self._signal_col_ids))
         logging.debug('%s self._label_col_ids: %s', TAG, str(self._label_col_ids))
@@ -267,19 +271,22 @@ class TimeSeriesProcessor:
         logging.debug('%s np.sum(predictions): %f', TAG, np.sum(predictions))
 
         # Find the thresholds
-        tpr_targets = (0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
-        utils.calculate_auroc(
+        #tpr_targets = (0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
+        tpr_targets = (0.5, 0.5)
+        p_thresholds = utils.calculate_auroc(
                 labels_test, predictions,
                 self._event_name_list,
                 tpr_targets,
                 self._nn_type,
                 plot=self._is_plot_mode_on)
-        p_thresholds = (0.7, 0.7, 0.7)
-        logging.debug('%s p_thresholds: %f, %f, %f', TAG, p_thresholds[0], p_thresholds[1], p_thresholds[2])
+        #p_thresholds = (0.1, 0.1, 0.1)
+        logging.debug('%s p_thresholds: %s', TAG, str(p_thresholds))
 
-        #
-        if False:
-            create_control_signal(labels_test, predictions, p_thresholds);
+        # Simulate control signal
+        if self._is_control_simulation_on:
+            TimeSeriesProcessor.create_control_signal(
+                    labels_test, predictions, p_thresholds,
+                    self._nn_type);
 
     # End of run
 
@@ -300,7 +307,20 @@ class TimeSeriesProcessor:
         return nn_input_shape
 
     @staticmethod
-    def create_control_signal(labels_test, predictions, p_thresholds):
+    def create_control_signal(labels_test, predictions, p_thresholds,
+            classifier_name=""):
+        
+        # Plot prediction confidence histograms
+        print 'predictions_rh:\n', predictions_rh
+        plt.hist(x=predictions_rh, bins=100)
+        plt.title("Right hand")
+        #plt.show()
+        plt.savefig('models/{0}_{1}_confidence-histogram.png'.format(
+                    classifier_name,
+                    datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)),
+                    bbox_inches='tight')
+        plt.clf()
+        
         # Create the control signal time series
         # p_threshold_rh = 0.754
         # p_threshold_lh = 0.379
@@ -320,18 +340,18 @@ class TimeSeriesProcessor:
         for i_time in range(1, predictions_res_bin.shape[0]):
             cursor_pos_series[i_time] = cursor_pos_series[i_time-1] + predictions_res_bin[i_time]
 
-        # Plot prediction confidence histograms
-        print 'predictions_rh:\n', predictions_rh
-        plt.hist(x=predictions_rh, bins=100)
-        plt.title("Right hand")
-        plt.show()
-
         # Plot the timeline
         time_axis = np.arange(labels_test_res.shape[0])
-        plt.plot(time_axis, labels_test_res, 'b-', label='event labels')
-        plt.plot(time_axis, predictions_res_bin, 'rx', label='predictions')
-        plt.plot(time_axis, 0.001*cursor_pos_series, 'r-', label='cursor x pos')
+        plt.plot(time_axis, labels_test_res, 'b-', linewidth=2, label='event labels - ground truth')
+        plt.plot(time_axis, predictions_res_bin, 'rx', label='event labels - predicted')
+        plt.plot(time_axis, 0.001*cursor_pos_series, 'r-', label='cursor position')
         #plt.plot(time_axis, labels_test[:, 0])
         #plt.plot(time_axis, predictions[:, 0])
+        plt.ylim([-1.5, 1.5])
         plt.legend(loc='lower right')
         plt.show()
+        plt.savefig('models/{0}_{1}_control-simulation.png'.format(
+                    classifier_name,
+                    datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)),
+                    bbox_inches='tight')
+        plt.clf()

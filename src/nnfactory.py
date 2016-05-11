@@ -368,29 +368,29 @@ def create_nn_gtec_CovMat_large(nn_input_shape, nn_output_shape, num_max_trainin
     # To Conv1DLayer: 3D tensor, with shape (batch_size, num_input_channels, input_length)
     nonlinearity_conv = nonlinearity=lasagne.nonlinearities.linear
 
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=64, filter_size=(5, 5),
             nonlinearity=nonlinearity_conv, name='Conv_1')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_1')
     #
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=128, filter_size=(9, 9),
             nonlinearity=nonlinearity_conv, name='Conv_2')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_2')
     #
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=256, filter_size=(3, 3),
             nonlinearity=nonlinearity_conv, name='Conv_3')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_3')
     #
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
-            nonlinearity=nonlinearity_conv, name='Conv_4')
-    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_4')
+    #layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+    #        nonlinearity=nonlinearity_conv, name='Conv_4')
+    #layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_4')
     #
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
-            nonlinearity=nonlinearity_conv, name='Conv_5')
-    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_5')
+    #layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+    #        nonlinearity=nonlinearity_conv, name='Conv_5')
+    #layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_5')
     #
-    layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
-            nonlinearity=nonlinearity_conv, name='Conv_6')
-    layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_6')
+    #layer_obj = lasagne.layers.Conv2DLayer(layer_obj, num_filters=32, filter_size=(3, 3),
+    #        nonlinearity=nonlinearity_conv, name='Conv_6')
+    #layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_6')
     #
     layer_obj = lasagne.layers.DenseLayer(layer_obj, num_units=512, name='Dense_97')
     layer_obj = lasagne.layers.DropoutLayer(layer_obj, p=0.5, name='Dropout_97')

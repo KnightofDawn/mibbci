@@ -248,12 +248,13 @@ def calculate_auroc(
     plt.title('ROC')
     plt.legend(loc='lower right')
     #plt.savefig('models/roc_{}.png'.format(datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)), bbox_inches='tight')
-    plt.savefig('models/roc_{0}_{1}.png'.format(
+    plt.savefig('models/{0}_{1}_roc.png'.format(
                     classifier_name,
                     datetime.datetime.now().strftime(params.TIMESTAMP_FORMAT_STR)),
-                bbox_inches='tight')
+                    bbox_inches='tight')
     if plot:
         plt.show()
+    plt.clf()
 
     return threshold_target_arr
 
